@@ -66,6 +66,9 @@ export class Session {
       return true;
     } catch (e) {
       if (e?.status === 401 || e?.status === 400 || e?.status === 403) {
+        // 파일만 지우면 메모리에는 죽은 세션이 남아 session.user 가 로그인한 것처럼 보인다 — 함께 비운다.
+        this.#supa.setSession(null);
+        await this.#lastWrite;
         await fs.rm(this.#authFile, { force: true });
         return false;
       }

@@ -32,6 +32,15 @@ function setup({ table = 'messages', filter = 'recipient=eq.u1', token = 'at1' }
   return { supa, sub, seen, ws: FakeWS.last };
 }
 
+// 서버가 구독을 받아들였다고 답하는 순간(phx_reply ok, join 프레임과 같은 ref).
+function ackJoin(ws) {
+  const join = ws.sent.find((f) => f.event === 'phx_join');
+  ws.fireMessage({ event: 'phx_reply', ref: join.ref, payload: { status: 'ok', response: { postgres_changes: [] } } });
+}
+
+// 소켓 열기 + 구독 승인까지 한 번에(대부분의 시험이 바라는 "붙은 상태").
+function openAndJoin(ws) { ws.fireOpen(); ackJoin(ws); }
+
 test('① realtime url: wss + /realtime/v1/websocket?apikey=<anon>&vsn=1.0.0', (t) => {
   const { sub, ws } = setup();
   t.after(() => sub.close());
@@ -50,13 +59,29 @@ test('② first frame is phx_join on realtime:inbox with postgres_changes config
   assert.deepEqual(join.payload.config.postgres_changes, [{ event: 'INSERT', schema: 'public', table: 'messages', filter: 'recipient=eq.u1' }]);
   assert.equal(join.payload.access_token, 'at1');
   assert.ok(join.ref, 'every frame carries a ref');
+  // 소켓이 열린 것만으로는 'open'이 아니다 — 서버가 구독을 받아들였다고 답해야 한다.
+  assert.deepEqual(seen.status, []);
+  ackJoin(ws);
+  assert.deepEqual(seen.status, ['open']);
+  // 같은 승인이 또 와도 두 번 켜지 않는다.
+  ackJoin(ws);
+  assert.deepEqual(seen.status, ['open']);
+});
+
+test('②-나 join ok 전에는 열리지 않고, 다른 ref 의 ok(하트비트 응답)로도 열리지 않는다', (t) => {
+  const { sub, ws, seen } = setup();
+  t.after(() => sub.close());
+  ws.fireOpen();
+  ws.fireMessage({ event: 'phx_reply', ref: '99', payload: { status: 'ok', response: {} } });
+  assert.deepEqual(seen.status, [], '하트비트 응답으로는 켜지지 않는다');
+  ackJoin(ws);
   assert.deepEqual(seen.status, ['open']);
 });
 
 test('③ postgres_changes frame delivers payload.data.record to onChange', (t) => {
   const { sub, ws, seen } = setup();
   t.after(() => sub.close());
-  ws.fireOpen();
+  openAndJoin(ws);
   const record = { id: 'r1', client_id: 'c1', sender: 'u2', body: 'sealed' };
   ws.fireMessage({ event: 'postgres_changes', payload: { data: { record } } });
   assert.deepEqual(seen.changes, [record]);
@@ -67,17 +92,23 @@ test('③ postgres_changes frame delivers payload.data.record to onChange', (t) 
 test('④ phx_reply with status error → onStatus("error")', (t) => {
   const { sub, ws, seen } = setup();
   t.after(() => sub.close());
-  ws.fireOpen();
-  ws.fireMessage({ event: 'phx_reply', payload: { status: 'ok', response: {} } });
+  openAndJoin(ws);
   assert.deepEqual(seen.status, ['open']);
   ws.fireMessage({ event: 'phx_reply', payload: { status: 'error', response: { reason: 'unauthorized' } } });
   assert.deepEqual(seen.status, ['open', 'error']);
+
+  // 승인 전에 온 error 도 그대로 error 다(구독이 거절된 경우).
+  const early = setup();
+  early.ws.fireOpen();
+  early.ws.fireMessage({ event: 'phx_reply', payload: { status: 'error', response: { reason: 'unauthorized' } } });
+  assert.deepEqual(early.seen.status, ['error']);
+  early.sub.close();
 });
 
 test('⑤ setSession while open sends an access_token frame', (t) => {
   const { supa, sub, ws } = setup();
   t.after(() => sub.close());
-  ws.fireOpen();
+  openAndJoin(ws);
   supa.setSession({ access_token: 'at2', refresh_token: 'rt2', expires_at: Math.floor(Date.now() / 1000) + 9999, user: { id: 'u1' } });
   const frame = ws.sent[ws.sent.length - 1];
   assert.equal(frame.event, 'access_token');
@@ -88,7 +119,7 @@ test('⑤ setSession while open sends an access_token frame', (t) => {
 test('⑥ close() closes the socket and stays quiet; a socket-side close reports "closed" once', () => {
   // (가) 우리가 닫으면 onStatus('closed')는 오지 않는다
   const mine = setup();
-  mine.ws.fireOpen();
+  openAndJoin(mine.ws);
   mine.sub.close();
   assert.equal(mine.ws.closeCount, 1);
   mine.ws.fireClose();
@@ -97,7 +128,7 @@ test('⑥ close() closes the socket and stays quiet; a socket-side close reports
 
   // (나) 소켓이 스스로 끊기면 'closed' 한 번, 그 뒤 close()를 불러도 더 오지 않는다
   const theirs = setup();
-  theirs.ws.fireOpen();
+  openAndJoin(theirs.ws);
   theirs.ws.fireClose();
   theirs.ws.fireClose();
   theirs.sub.close();

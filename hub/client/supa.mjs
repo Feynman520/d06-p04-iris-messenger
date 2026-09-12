@@ -60,11 +60,13 @@ export class Supa {
   subscribe({ table, filter, onChange, onStatus = () => {} }) {
     const WS = this.WebSocketImpl; if (!WS) throw new SupaError('WebSocket unavailable');
     const wsUrl = this.url.replace(/^http/, 'ws') + `/realtime/v1/websocket?apikey=${encodeURIComponent(this.anonKey)}&vsn=1.0.0`;
-    let ref = 0, hb = null, closed = false; const ws = new WS(wsUrl);
-    const send = (o) => { try { ws.send(JSON.stringify({ ...o, ref: String(++ref) })); } catch {} };
+    let ref = 0, hb = null, closed = false, joinRef = null, joined = false; const ws = new WS(wsUrl);
+    const send = (o) => { const r = String(++ref); try { ws.send(JSON.stringify({ ...o, ref: r })); } catch {} return r; };
     const off = this.onSession((s) => { if (s?.access_token && ws.readyState === 1) send({ topic: 'realtime:inbox', event: 'access_token', payload: { access_token: s.access_token } }); });
-    ws.onopen = () => { send({ topic: 'realtime:inbox', event: 'phx_join', payload: { config: { postgres_changes: [{ event: 'INSERT', schema: 'public', table, filter }] }, access_token: this.#s?.access_token } }); hb = setInterval(() => send({ topic: 'phoenix', event: 'heartbeat', payload: {} }), 30000); onStatus('open'); };
-    ws.onmessage = (ev) => { let m; try { m = JSON.parse(ev.data); } catch { return; } if (m.event === 'postgres_changes') { try { onChange(m.payload?.data?.record || null); } catch (e) { this.log(`onChange error: ${e.message}`); } } else if (m.event === 'phx_reply' && m.payload?.status === 'error') { this.log(`realtime join error: ${JSON.stringify(m.payload).slice(0, 200)}`); onStatus('error'); } };
+    // 'open'은 소켓이 열린 순간이 아니라 **서버가 구독(postgres_changes)을 받아들였다고 답한 뒤**에만 켠다.
+    // 소켓만 열린 상태에서 켜면 그 직후에 온 편지가 도어벨을 놓친다(2026-09-13 라이브 실측).
+    ws.onopen = () => { joinRef = send({ topic: 'realtime:inbox', event: 'phx_join', payload: { config: { postgres_changes: [{ event: 'INSERT', schema: 'public', table, filter }] }, access_token: this.#s?.access_token } }); hb = setInterval(() => send({ topic: 'phoenix', event: 'heartbeat', payload: {} }), 30000); };
+    ws.onmessage = (ev) => { let m; try { m = JSON.parse(ev.data); } catch { return; } if (m.event === 'postgres_changes') { try { onChange(m.payload?.data?.record || null); } catch (e) { this.log(`onChange error: ${e.message}`); } } else if (m.event === 'phx_reply') { if (m.payload?.status === 'error') { this.log(`realtime join error: ${JSON.stringify(m.payload).slice(0, 200)}`); onStatus('error'); } else if (m.payload?.status === 'ok' && String(m.ref) === String(joinRef) && !joined) { joined = true; onStatus('open'); } } };
     ws.onerror = () => { if (!closed) onStatus('error'); };
     ws.onclose = () => { clearInterval(hb); off(); if (!closed) { closed = true; onStatus('closed'); } };
     return { close() { if (closed) return; closed = true; clearInterval(hb); off(); try { ws.close(); } catch {} } };

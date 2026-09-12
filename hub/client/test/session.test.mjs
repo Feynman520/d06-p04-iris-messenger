@@ -110,4 +110,7 @@ test('Session: load() clears auth.bin and returns false when refresh fails with 
 
   assert.equal(await session.load(), false);
   assert.equal(fssync.existsSync(authFile), false);
+  // 파일뿐 아니라 메모리의 세션도 비워야 한다(로그인한 것처럼 보이면 안 된다).
+  assert.equal(supa.session, null);
+  assert.equal(session.user, null);
 });

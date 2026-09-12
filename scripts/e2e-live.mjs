@@ -103,15 +103,12 @@ try {
   ok(!!A.c.publicKeyOf(B.id) && !!B.c.publicKeyOf(A.id), 'both pinned the other public key');
   timings.push(`연락처 상호 수락 ${ms(t)}`);
 
-  // 웹소켓이 붙을 틈을 준다(도어벨이 빠른 길인지 보고서에 남기기 위해).
+  // 'online' 은 서버가 구독(postgres_changes)을 받아들였다고 답한 뒤에만 켜진다(2026-09-13 수정).
+  // 그래서 여기서는 그 신호만 기다리면 되고, 따로 뜸을 들이지 않는다 — 바로 다음 편지가 도어벨로 와야 한다.
   const tConn = Date.now();
   for (let i = 0; i < 25 && !(A.m.connection === 'online' && B.m.connection === 'online'); i += 1) await sleep(200);
   const connAtStart = { a: A.m.connection, b: B.m.connection };
   console.log(`INFO realtime after setup: A=${connAtStart.a} B=${connAtStart.b} (after ${ms(tConn)})`);
-  // 주의: connection 'online' 은 ws.onopen 에서 곧바로 켜진다 — 서버가 postgres_changes 구독을
-  // 받아들였다는 응답(phx_reply)을 기다리지 않는다. 그래서 'online' 직후에 보낸 첫 편지는 도어벨을
-  // 놓칠 수 있다(안전망 gapFill 이 메운다). 여기서는 도어벨 자체의 지연을 재려고 잠시 뜸을 들인다.
-  await sleep(1500);
 
   // ---- ③ 글 왕복 ----
   t = Date.now();
