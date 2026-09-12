@@ -1,0 +1,10 @@
+node_modules/
+state/
+dist/
+.env
+.env.local
+.vercel
+docs/구현계획*
+.superpowers/
+module/lib/
+*.zip

@@ -1,0 +1,18 @@
+{
+  "name": "iris-messenger",
+  "version": "0.1.0",
+  "private": true,
+  "description": "IRIS Messenger: end-to-end encrypted person-to-person messaging module for IRIS-Face",
+  "author": "Sejun Ham (함세준)",
+  "license": "MIT",
+  "type": "module",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "test": "node --test hub/client/test module/test",
+    "deploy:hub": "node hub/server/deploy.mjs",
+    "verify:rls": "node scripts/verify-rls.mjs",
+    "verify:e2e": "node scripts/e2e-live.mjs",
+    "build:zip": "node scripts/build-zip.mjs",
+    "ops:daily": "node hub/server/ops/daily.mjs"
+  }
+}
