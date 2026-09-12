@@ -132,6 +132,18 @@ test('⑫ otpVerify pasted link without token/token_hash → SupaError bad_input
   );
 });
 
+test('⑬ update PATCHes the row and returns the server representation', async (t) => {
+  const mock = await startMock();
+  t.after(() => mock.close());
+  const supa = makeSupa(mock);
+  supa.setSession({ access_token: 'at1', refresh_token: 'rt1', expires_at: Math.floor(Date.now() / 1000) + 9999, user: { id: 'u1' } });
+  const r = await supa.update('profiles', 'id=eq.u1', { display_name: '세준' });
+  assert.deepEqual(r, [{ display_name: '세준' }]);
+  assert.equal(mock.calls.profilePatch.length, 1);
+  assert.equal(mock.calls.profilePatch[0].id, 'eq.u1');
+  assert.deepEqual(mock.calls.profilePatch[0].body, { display_name: '세준' });
+});
+
 test('subscribe throws SupaError when WebSocketImpl is null', async (t) => {
   const mock = await startMock();
   t.after(() => mock.close());

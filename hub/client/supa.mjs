@@ -53,6 +53,7 @@ export class Supa {
   async logout() { try { if (this.#s) await this.#req('POST', '/auth/v1/logout', { retry: false }); } catch {} this.setSession(null); }
   async select(table, query = '') { await this.ensureFresh(); return this.#req('GET', `/rest/v1/${table}${query ? '?' + query : ''}`); }
   async insert(table, row, { returning = 'representation' } = {}) { await this.ensureFresh(); const j = await this.#req('POST', `/rest/v1/${table}`, { body: JSON.stringify(row), headers: { 'Content-Type': 'application/json', Prefer: `return=${returning}` } }); return Array.isArray(j) ? j[0] ?? null : j; }
+  async update(table, query, patch) { await this.ensureFresh(); return this.#req('PATCH', `/rest/v1/${table}?${query}`, { body: JSON.stringify(patch), headers: { 'Content-Type': 'application/json', Prefer: 'return=representation' } }); }
   async rpc(fn, args = {}) { await this.ensureFresh(); return this.#req('POST', `/rest/v1/rpc/${fn}`, { body: JSON.stringify(args), headers: { 'Content-Type': 'application/json' } }); }
   async upload(bucket, objPath, data) { await this.ensureFresh(); return this.#req('POST', `/storage/v1/object/${bucket}/${objPath}`, { body: data, headers: { 'Content-Type': 'application/octet-stream', 'x-upsert': 'false' } }); }
   async download(bucket, objPath) { await this.ensureFresh(); return this.#req('GET', `/storage/v1/object/${bucket}/${objPath}`, { raw: true }); }

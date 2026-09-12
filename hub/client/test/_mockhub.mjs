@@ -18,8 +18,9 @@ function sendJson(res, status, obj) {
 }
 
 export async function startMock() {
-  const calls = { otp: [], verify: [], refresh: [], insert: [], rpc: [], upload: [] };
+  const calls = { otp: [], verify: [], refresh: [], insert: [], rpc: [], upload: [], profilePatch: [] };
   const store = new Map(); // bucket/path -> Buffer
+  store.profile = null; // single fake profiles row (id 'u1')
 
   const server = createServer(async (req, res) => {
     const u = new URL(req.url, 'http://localhost');
@@ -75,6 +76,37 @@ export async function startMock() {
     if (method === 'POST' && path === '/rest/v1/rpc/echo') {
       calls.rpc.push(body);
       return sendJson(res, 200, body);
+    }
+
+    if (method === 'POST' && path === '/rest/v1/rpc/delete_me') {
+      calls.rpc.push(body);
+      return sendJson(res, 200, {});
+    }
+
+    if (method === 'GET' && path === '/rest/v1/profiles') {
+      const idParam = u.searchParams.get('id') || ''; // 'eq.u1'
+      const id = idParam.startsWith('eq.') ? idParam.slice(3) : null;
+      if (!store.profile || store.profile.id !== id) return sendJson(res, 200, []);
+      const selectParam = u.searchParams.get('select');
+      const fields = selectParam ? selectParam.split(',') : Object.keys(store.profile);
+      const row = {};
+      for (const f of fields) row[f] = store.profile[f];
+      return sendJson(res, 200, [row]);
+    }
+
+    if (method === 'POST' && path === '/rest/v1/profiles') {
+      store.profile = { ...body };
+      const prefer = req.headers.prefer || '';
+      if (prefer.includes('return=representation')) return sendJson(res, 201, [store.profile]);
+      res.writeHead(201);
+      return res.end();
+    }
+
+    if (method === 'PATCH' && path === '/rest/v1/profiles') {
+      const idParam = u.searchParams.get('id') || '';
+      calls.profilePatch.push({ id: idParam, body });
+      if (store.profile) Object.assign(store.profile, body);
+      return sendJson(res, 200, [body]);
     }
 
     const uploadMatch = path.match(/^\/storage\/v1\/object\/([^/]+)\/(.+)$/);
