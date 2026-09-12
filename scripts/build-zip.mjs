@@ -17,6 +17,12 @@ function arg(name, fallback) {
   return i === -1 ? fallback : process.argv[i + 1];
 }
 
+// 흔한 실수는 스택 없이 한 줄로 알리고 2번으로 끝낸다(무엇을 고쳐야 하는지만 보이게).
+function die(msg) {
+  console.error(msg);
+  process.exit(2);
+}
+
 const KEY_PATH = arg('key', null);
 const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
 const VERSION = pkg.version;
@@ -25,13 +31,23 @@ const STAGE = path.join(ROOT, 'dist', 'stage');
 const MODULE_DIR = path.join(ROOT, 'module');
 const HUB_CLIENT_DIR = path.join(ROOT, 'hub', 'client');
 
-const moduleInfo = JSON.parse(fs.readFileSync(path.join(MODULE_DIR, 'module.json'), 'utf8'));
-if (moduleInfo.version !== VERSION) {
-  console.error(`module.json version (${moduleInfo.version}) !== package.json version (${VERSION})`);
-  process.exit(2);
-}
+// 열쇠는 일을 시작하기 전에 본다 — 서명 단계에서야 없다고 터지면 스테이지만 더럽힌다.
+if (process.argv.includes('--key') && (!KEY_PATH || !fs.existsSync(KEY_PATH))) die(`key file not found: ${KEY_PATH ?? ''}`);
 
-// ① dist/stage/ 를 비우고 module/(test·lib·state 제외)을 복사한다.
+const MODULE_JSON = path.join(MODULE_DIR, 'module.json');
+let moduleInfo;
+try {
+  moduleInfo = JSON.parse(fs.readFileSync(MODULE_JSON, 'utf8'));
+} catch (e) {
+  die(`module/module.json missing or unreadable: ${e.code === 'ENOENT' ? 'no such file' : e.message}`);
+}
+if (!moduleInfo || typeof moduleInfo !== 'object' || Array.isArray(moduleInfo) || typeof moduleInfo.version !== 'string') {
+  die('module/module.json invalid: expected an object with a "version" string');
+}
+if (moduleInfo.version !== VERSION) die(`module.json version (${moduleInfo.version}) !== package.json version (${VERSION})`);
+
+// ① dist/stage/ 를 비우고 module/(test·lib·state·*.md 제외)을 복사한다.
+// 문서(AGENTS.md 등)는 설치본에 들어가지 않는다 — 모듈은 도는 코드만 담는다.
 fs.rmSync(STAGE, { recursive: true, force: true });
 fs.mkdirSync(STAGE, { recursive: true });
 const SKIP_TOP = new Set(['test', 'lib', 'state']);
@@ -40,7 +56,8 @@ fs.cpSync(MODULE_DIR, STAGE, {
   filter: (src) => {
     const rel = path.relative(MODULE_DIR, src);
     if (!rel) return true;
-    return !SKIP_TOP.has(rel.split(path.sep)[0]);
+    if (SKIP_TOP.has(rel.split(path.sep)[0])) return false;
+    return !(rel.toLowerCase().endsWith('.md') && fs.statSync(src).isFile());
   },
 });
 

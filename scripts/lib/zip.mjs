@@ -1,5 +1,6 @@
 // IRIS-Face · © 2026 Sejun Ham (함세준) · MIT · https://feynman520.github.io/card/#home
 // P02 IRIS-Face daemon/zip.mjs 사본(2026-09-13). 바뀌면 P02가 정본.
+// 2026-09-13 P04 수정: 로컬 헤더 method 위치(offset 8) — P02 원본은 offset 10에 썼음
 // 최소 zip 읽기/쓰기(모듈 설치 전용, 외부 의존 0). 읽기: 저장(0)·deflate(8). 쓰기: 저장(0)·deflate(8). ZIP64 미지원(모듈 zip은 수 MB).
 import zlib from 'node:zlib';
 
@@ -60,7 +61,8 @@ export function zipWrite(entries) {
     const payload = deflate ? zlib.deflateRawSync(data) : data;
     const csize = payload.length, usize = data.length;
     const lh = Buffer.alloc(30);
-    lh.writeUInt32LE(SIG_LOCAL, 0); lh.writeUInt16LE(20, 4); lh.writeUInt16LE(0x0800, 6); lh.writeUInt16LE(0, 8); lh.writeUInt16LE(method, 10); lh.writeUInt16LE(0, 12);
+    // ZIP 규격상 로컬 헤더 offset 8 = 압축 방식, 10 = 수정 시각, 12 = 수정 날짜.
+    lh.writeUInt32LE(SIG_LOCAL, 0); lh.writeUInt16LE(20, 4); lh.writeUInt16LE(0x0800, 6); lh.writeUInt16LE(method, 8); lh.writeUInt16LE(0, 10); lh.writeUInt16LE(0, 12);
     lh.writeUInt32LE(crc, 14); lh.writeUInt32LE(csize, 18); lh.writeUInt32LE(usize, 22); lh.writeUInt16LE(nb.length, 26); lh.writeUInt16LE(0, 28);
     const ch = Buffer.alloc(46);
     ch.writeUInt32LE(SIG_CENTRAL, 0); ch.writeUInt16LE(20, 4); ch.writeUInt16LE(20, 6); ch.writeUInt16LE(0x0800, 8); ch.writeUInt16LE(method, 10); ch.writeUInt16LE(0, 12); ch.writeUInt16LE(0, 14);
