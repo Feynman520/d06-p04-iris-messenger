@@ -65,7 +65,7 @@ export class Session {
       await this.#lastWrite;
       return true;
     } catch (e) {
-      if (e?.status === 401 || e?.status === 400) {
+      if (e?.status === 401 || e?.status === 400 || e?.status === 403) {
         await fs.rm(this.#authFile, { force: true });
         return false;
       }

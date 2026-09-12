@@ -49,8 +49,8 @@ export class Identity {
     return id;
   }
 
-  async #persist() {
-    const obj = { entropy: b64.enc(this.#entropy), key_version: this.#keyVersion };
+  async #persist(entropy, keyVersion) {
+    const obj = { entropy: b64.enc(entropy), key_version: keyVersion };
     const enc = await this.#dpapi.protect(Buffer.from(JSON.stringify(obj), 'utf8'));
     await writeFileAtomic(this.#keysFile, enc);
   }
@@ -80,17 +80,21 @@ export class Identity {
     return rows?.[0] ?? null;
   }
 
-  // 새 엔트로피로 열쇠를 만들어 keys.bin에 저장하고, profiles를 없으면 insert / 있으면 update(key_version+1)한다.
+  // 새 엔트로피로 열쇠를 로컬 변수에만 만들어 두고, 서버 insert/update가 먼저 성공한 뒤에만
+  // keys.bin에 쓰고 메모리 상태를 갱신한다. 서버가 실패하면 기존 키 상태는 그대로 남는다.
   async #mintKeypair(displayName, existing) {
-    this.#entropy = generateEntropy();
-    this.#keyVersion = existing ? existing.key_version + 1 : 1;
-    this.#keys = deriveKeyPair(this.#entropy);
-    await this.#persist();
+    const entropy = generateEntropy();
+    const keyVersion = existing ? existing.key_version + 1 : 1;
+    const keys = deriveKeyPair(entropy);
     const uid = this.#uid();
-    const patch = { display_name: displayName, public_key: b64.enc(this.#keys.publicRaw), key_version: this.#keyVersion };
+    const patch = { display_name: displayName, public_key: b64.enc(keys.publicRaw), key_version: keyVersion };
     if (existing) await this.#supa.update('profiles', `id=eq.${uid}`, patch);
     else await this.#supa.insert('profiles', { id: uid, ...patch });
-    return entropyToMnemonic(this.#entropy);
+    await this.#persist(entropy, keyVersion);
+    this.#entropy = entropy;
+    this.#keyVersion = keyVersion;
+    this.#keys = keys;
+    return entropyToMnemonic(entropy);
   }
 
   async create(displayName) {
@@ -108,10 +112,11 @@ export class Identity {
     const keys = deriveKeyPair(entropy);
     const profile = await this.fetchProfile();
     if (profile && profile.public_key !== b64.enc(keys.publicRaw)) throw new Error('mismatch');
+    const keyVersion = profile ? profile.key_version : 1;
+    await this.#persist(entropy, keyVersion);
     this.#entropy = entropy;
     this.#keys = keys;
-    this.#keyVersion = profile ? profile.key_version : 1;
-    await this.#persist();
+    this.#keyVersion = keyVersion;
   }
 
   async rename(displayName) {

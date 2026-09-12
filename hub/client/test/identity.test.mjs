@@ -15,6 +15,7 @@ test('Identity: mnemonic keys, profile create/restore/reset/rename', async (t) =
   const mock = await startMock();
   t.after(() => mock.close());
   const stateDir = fssync.mkdtempSync(path.join(os.tmpdir(), 'iris-identity-'));
+  t.after(() => fssync.rmSync(stateDir, { recursive: true, force: true }));
   const keysFile = path.join(stateDir, 'keys.bin');
 
   const supa = new Supa({ url: mock.url, anonKey: 'anon-key' });
@@ -69,4 +70,59 @@ test('Identity: mnemonic keys, profile create/restore/reset/rename', async (t) =
   // ⑧ rename('함세준') → mock profile display_name 갱신
   await identity3.rename('함세준');
   assert.equal(mock.store.profile.display_name, '함세준');
+});
+
+test('Identity: create() leaves no keys.bin when the server insert fails', async (t) => {
+  const stateDir = fssync.mkdtempSync(path.join(os.tmpdir(), 'iris-identity-'));
+  t.after(() => fssync.rmSync(stateDir, { recursive: true, force: true }));
+  const keysFile = path.join(stateDir, 'keys.bin');
+
+  const stubSupa = {
+    session: { user: { id: 'u1' } },
+    select: async () => [], // fetchProfile → 아직 프로필 없음
+    insert: async () => {
+      throw new Error('insert failed');
+    },
+    update: async () => {
+      throw new Error('update should not be called here');
+    },
+  };
+
+  const identity = new Identity({ stateDir, supa: stubSupa, dpapi: dpapiPlain });
+  await assert.rejects(() => identity.create('세준'));
+  assert.equal(fssync.existsSync(keysFile), false);
+
+  const identity2 = new Identity({ stateDir, supa: stubSupa, dpapi: dpapiPlain });
+  assert.equal(await identity2.load(), false);
+});
+
+test('Identity: reset() leaves the previous key untouched when the server update fails', async (t) => {
+  const stateDir = fssync.mkdtempSync(path.join(os.tmpdir(), 'iris-identity-'));
+  t.after(() => fssync.rmSync(stateDir, { recursive: true, force: true }));
+  const keysFile = path.join(stateDir, 'keys.bin');
+
+  let profile = null;
+  const stubSupa = {
+    session: { user: { id: 'u1' } },
+    select: async () => (profile ? [profile] : []),
+    insert: async (table, row) => {
+      profile = { ...row };
+      return profile;
+    },
+    update: async () => {
+      throw new Error('update failed');
+    },
+  };
+
+  const identity = new Identity({ stateDir, supa: stubSupa, dpapi: dpapiPlain });
+  await identity.create('세준'); // 정상 insert로 기준 키 상태를 만든다.
+  const publicRawBefore = Buffer.from(identity.publicRaw);
+  const keyVersionBefore = identity.keyVersion;
+  const keysBinBefore = fssync.readFileSync(keysFile);
+
+  await assert.rejects(() => identity.reset('세준'));
+
+  assert.deepEqual(Buffer.from(identity.publicRaw), publicRawBefore);
+  assert.equal(identity.keyVersion, keyVersionBefore);
+  assert.deepEqual(fssync.readFileSync(keysFile), keysBinBefore);
 });

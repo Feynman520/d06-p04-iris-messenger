@@ -5,15 +5,17 @@ import fs from 'node:fs/promises';
 import fssync from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { Supa } from '../supa.mjs';
+import { Supa, SupaError } from '../supa.mjs';
 import { Session } from '../session.mjs';
 import { dpapiPlain } from '../dpapi.mjs';
+import { writeFileAtomic } from '../store.mjs';
 import { startMock } from './_mockhub.mjs';
 
 test('Session: OTP login lifecycle, lockout, persistence, logout, delete', async (t) => {
   const mock = await startMock();
   t.after(() => mock.close());
   const stateDir = fssync.mkdtempSync(path.join(os.tmpdir(), 'iris-session-'));
+  t.after(() => fssync.rmSync(stateDir, { recursive: true, force: true }));
   const authFile = path.join(stateDir, 'auth.bin');
   const email = 'a@b.com';
 
@@ -71,6 +73,7 @@ test('Session: bad-shaped code (not 6-digit, not a link) is rejected without cal
   const mock = await startMock();
   t.after(() => mock.close());
   const stateDir = fssync.mkdtempSync(path.join(os.tmpdir(), 'iris-session-'));
+  t.after(() => fssync.rmSync(stateDir, { recursive: true, force: true }));
   const supa = new Supa({ url: mock.url, anonKey: 'anon-key' });
   const session = new Session({ stateDir, supa, dpapi: dpapiPlain });
   await session.requestCode('a@b.com');
@@ -79,4 +82,32 @@ test('Session: bad-shaped code (not 6-digit, not a link) is rejected without cal
     (e) => e.message === 'bad code',
   );
   assert.equal(mock.calls.verify.length, 0);
+});
+
+test('Session: load() clears auth.bin and returns false when refresh fails with 403', async (t) => {
+  const mock = await startMock();
+  t.after(() => mock.close());
+  const stateDir = fssync.mkdtempSync(path.join(os.tmpdir(), 'iris-session-'));
+  t.after(() => fssync.rmSync(stateDir, { recursive: true, force: true }));
+  const authFile = path.join(stateDir, 'auth.bin');
+
+  // 만료된 세션을 auth.bin에 미리 심어 둔다(dpapiPlain 통과 형식과 동일하게).
+  const seeded = {
+    access_token: 'at-old',
+    refresh_token: 'rt-old',
+    expires_at: Math.floor(Date.now() / 1000) - 10,
+    user: { id: 'u1', email: 'a@b.com' },
+  };
+  const enc = await dpapiPlain.protect(Buffer.from(JSON.stringify(seeded), 'utf8'));
+  await writeFileAtomic(authFile, enc);
+
+  const supa = new Supa({ url: mock.url, anonKey: 'anon-key' });
+  // refresh()가 403(금지)로 실패하는 상황을 주입한다.
+  supa.refresh = async () => {
+    throw new SupaError('forbidden', { status: 403 });
+  };
+  const session = new Session({ stateDir, supa, dpapi: dpapiPlain });
+
+  assert.equal(await session.load(), false);
+  assert.equal(fssync.existsSync(authFile), false);
 });

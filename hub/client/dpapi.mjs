@@ -2,8 +2,9 @@
 // DPAPI(Windows Data Protection API, 현재 로그인 계정에 묶인 OS 암호화)로 바이트를 감싼다.
 // PowerShell을 1회 호출해 stdin/stdout을 base64로 주고받는다. 비-Windows에서는 사용할 수 없다.
 import { execFile } from 'node:child_process';
+import path from 'node:path';
 
-const PS_EXE = 'C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe';
+const PS_EXE = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
 const PROTECT_SCRIPT = "Add-Type -AssemblyName System.Security; $in=[Console]::In.ReadToEnd(); $b=[Convert]::FromBase64String($in); $o=[Security.Cryptography.ProtectedData]::Protect($b,$null,'CurrentUser'); [Console]::Out.Write([Convert]::ToBase64String($o))";
 const UNPROTECT_SCRIPT = "Add-Type -AssemblyName System.Security; $in=[Console]::In.ReadToEnd(); $b=[Convert]::FromBase64String($in); $o=[Security.Cryptography.ProtectedData]::Unprotect($b,$null,'CurrentUser'); [Console]::Out.Write([Convert]::ToBase64String($o))";
 
