@@ -87,6 +87,7 @@ end $$;
 revoke all on function public.accept_invite(text) from public;
 grant execute on function public.accept_invite(text) to authenticated;
 
+-- 참고(2026-09-13, 운영.md ③): 10회 초과 시 아래 raise exception이 트랜잭션 전체를 롤백시켜 방금 note_invite_attempt()가 기록한 시도 행도 함께 되돌아간다 — 즉 막힌 lookup_invite 호출은 1분 잠금창을 스스로 늘리지 않는다(영원히 안 풀리는 사고 방지, accept_invite는 예외 대신 값 반환이라 이 규칙이 적용되지 않음).
 create or replace function public.lookup_invite(p_code text)
 returns table (owner_id uuid, display_name text, public_key text, key_version int)
 language plpgsql security definer set search_path = public as $$

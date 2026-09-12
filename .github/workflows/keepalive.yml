@@ -1,0 +1,22 @@
+# IRIS Messenger · © 2026 Sejun Ham (함세준) · MIT · https://feynman520.github.io/card/#home
+# 무료 Supabase 프로젝트는 7일간 API 호출이 없으면 자동 정지된다(운영.md ②). 정지 전에 가벼운 조회 1회로
+# 활성 상태를 유지한다. module/hub.json 의 anonKey는 공개해도 안전하다(RLS가 방어) — 이 워크플로에는
+# service role key 등 비밀 값을 어디에도 넣지 않는다.
+name: keepalive
+
+on:
+  schedule:
+    - cron: '23 4 */3 * *'
+  workflow_dispatch: {}
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Ping hub (anon key only, no secrets)
+        run: |
+          set -e
+          url=$(jq -r .url module/hub.json)
+          anon_key=$(jq -r .anonKey module/hub.json)
+          curl -sf "${url}/rest/v1/meta?select=key" -H "apikey: ${anon_key}"
