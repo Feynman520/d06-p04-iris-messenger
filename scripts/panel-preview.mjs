@@ -24,22 +24,23 @@ const PEER2 = '22222222-2222-4222-8222-222222222222';
 const T0 = Date.parse('2026-09-13T09:41:00.000Z');
 const at = (min) => new Date(T0 + min * 60000).toISOString();
 
+// 화면만 보여 주기 위한 가짜 자료다 — 이름·내용은 전부 지어낸 것이며 실제 사람과 무관하다.
 const CONTACTS = [
-  { id: PEER1, displayName: '박지훈', fingerprint: 'K7QD4M2X', status: 'accepted', publicKey: 'pk1', keyVersion: 1, keyChanged: false, requestedByMe: false },
-  { id: PEER2, displayName: '강소율', fingerprint: 'T9BW3H6R', status: 'pending_in', publicKey: 'pk2', keyVersion: 1, keyChanged: false, requestedByMe: false },
+  { id: PEER1, displayName: '홍길동', fingerprint: 'K7QD4M2X', status: 'accepted', publicKey: 'pk1', keyVersion: 1, keyChanged: false, needsVerify: false, requestedByMe: false },
+  { id: PEER2, displayName: '김철수', fingerprint: 'T9BW3H6R', status: 'pending_in', publicKey: 'pk2', keyVersion: 1, keyChanged: false, needsVerify: false, requestedByMe: false },
 ];
 
 const HISTORY = {
   [PEER1]: [
-    { id: 'm1', peer: PEER1, dir: 'in', kind: 'text', at: at(0), status: 'received', read: true, text: '안녕하세요! 어제 말씀하신 실험 설계안 한 번 더 보고 싶은데 지금 보내 주실 수 있을까요?' },
+    { id: 'm1', peer: PEER1, dir: 'in', kind: 'text', at: at(0), status: 'received', read: true, text: '안녕하세요! 어제 말씀하신 자료 지금 보내 주실 수 있을까요?' },
     { id: 'm2', peer: PEER1, dir: 'out', kind: 'text', at: at(2), status: 'sent', read: true, text: '네, 바로 보내 드릴게요. 2쪽 표만 어제 고쳤습니다.' },
-    { id: 'm3', peer: PEER1, dir: 'in', kind: 'file', at: at(4), status: 'received', read: true, file: { name: '실험설계-v2.pdf', size: 862_112, storagePath: 'demo/1' } },
-    { id: 'm4', peer: PEER1, dir: 'in', kind: 'file', at: at(5), status: 'received', read: true, file: { name: '센서드라이버.exe', size: 4_318_720, storagePath: 'demo/2' } },
-    { id: 'm5', peer: PEER1, dir: 'out', kind: 'text', at: at(7), status: 'sent', read: true, text: 'exe는 제가 보낸 게 아닌 것 같은데 한 번 확인해 주실 수 있을까요?' },
-    { id: 'm6', peer: PEER1, dir: 'out', kind: 'text', at: at(8), status: 'pending', read: true, text: '확인되면 알려 주세요. 그때까지는 열지 않겠습니다.' },
+    { id: 'm3', peer: PEER1, dir: 'out', kind: 'file', at: at(4), status: 'sent', read: true, file: { name: '자료.pdf', size: 862_112, storagePath: 'demo/1' } },
+    { id: 'm4', peer: PEER1, dir: 'in', kind: 'text', at: at(5), status: 'received', read: true, text: '받았습니다. 표 잘 보입니다. 사진도 한 장 보냅니다.' },
+    { id: 'm5', peer: PEER1, dir: 'in', kind: 'file', at: at(6), status: 'received', read: true, file: { name: '사진.jpg', size: 1_284_310, storagePath: 'demo/2' } },
+    { id: 'm6', peer: PEER1, dir: 'out', kind: 'text', at: at(8), status: 'pending', read: true, text: '고맙습니다. 확인하고 회신드릴게요.' },
   ],
   [PEER2]: [
-    { id: 'n1', peer: PEER2, dir: 'in', kind: 'text', at: at(1), status: 'received', read: false, text: '선생님, 초대 코드 보냈습니다!' },
+    { id: 'n1', peer: PEER2, dir: 'in', kind: 'text', at: at(1), status: 'received', read: false, text: '초대 코드 보냈습니다. 확인 부탁드립니다.' },
     { id: 'n2', peer: PEER2, dir: 'in', kind: 'text', at: at(3), status: 'received', read: false, text: '수락해 주시면 자료 보내 드릴게요.' },
   ],
 };
@@ -58,7 +59,7 @@ class FakeApp {
       list: () => CONTACTS,
       get: (id) => CONTACTS.find((c) => c.id === id) || null,
       createInvite: async () => 'IRIS-K7QD-4M2X-A3TV',
-      acceptInvite: async () => ({ id: PEER2, displayName: '강소율', fingerprint: 'T9BW3H6R' }),
+      acceptInvite: async () => ({ id: PEER2, displayName: '김철수', fingerprint: 'T9BW3H6R' }),
       sync: async () => CONTACTS,
       respond: async () => CONTACTS,
       acceptKeyChange: () => {},
@@ -112,10 +113,12 @@ class FakeApp {
       stage: this.stage,
       email: this.stage === 'out' ? null : 'me@example.com',
       user: this.stage === 'out' || this.stage === 'code' ? null : { id: 'me' },
-      displayName: '함세준',
+      displayName: '이영희',
       fingerprint: 'A3TV8N5P',
       hub: { url: 'https://demo1234.supabase.co', custom: false },
       hubMismatch: null,
+      keyMismatch: false,
+      profileMissing: false,
       connection: 'online',
       unread: this.#unread(),
       contacts: CONTACTS,
@@ -133,6 +136,7 @@ class FakeApp {
   async logout() { this.stage = 'out'; this.emitState(); return { stage: this.stage }; }
   async deleteAccount() { this.stage = 'out'; this.emitState(); return { stage: this.stage }; }
   async setupIdentity() { this.stage = 'in'; this.emitState(); return { words: WORDS }; }
+  async registerExisting(displayName) { this.stage = 'in'; this.emitState(); return { displayName: displayName }; }
   async mnemonic() { return { words: WORDS }; }
   async resetIdentity() { return { words: WORDS }; }
   async setNotifyMuted(v) { this.notifyMuted = !!v; this.emitState(); return this.notifyMuted; }

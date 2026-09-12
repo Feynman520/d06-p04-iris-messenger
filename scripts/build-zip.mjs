@@ -1,5 +1,5 @@
 // IRIS Messenger · © 2026 Sejun Ham (함세준) · MIT · https://feynman520.github.io/card/#home
-// 서명 zip 빌드(설계 조각 8·Task 12): module/(test·lib·state 제외) + hub/client/*.mjs(test 제외) → lib/ 로 dist/stage/ 에 모으고
+// 서명 zip 빌드(설계 조각 8): module/(test·lib·state 제외) + hub/client/*.mjs(test 제외) → lib/ 로 dist/stage/ 에 모으고
 // import 경로를 치환한 뒤 매니페스트(+선택 서명)를 붙여 zip으로 묶는다. Face 콘센트 계약 = P02 docs/모듈-계약-v1.md.
 //   node scripts/build-zip.mjs [--key <pem>] [--out <zip>]
 import fs from 'node:fs';

@@ -8,6 +8,14 @@ IRIS-Face(https://github.com/Feynman520/d06-p02-iris-face)에 꽂는 종단간 �
 
 Face 사용자 두 명이 초대 코드를 주고받아 서로를 연락처로 등록한 뒤, 글과 파일을 암호화해서 주고받는 1:1 메신저입니다. 서버(허브)는 메시지를 중계·보관하지만 내용은 암호문으로만 보므로, 서버 운영자도 대화 내용을 읽을 수 없습니다. 1차 범위는 사람 대 사람 소통이며, 에이전트 간 소통(사람이 승인한 요청만 전달)은 2차로 예약되어 있습니다.
 
+## 화면
+
+| 로그인 | 대화 |
+|---|---|
+| ![로그인 화면](docs/화면-로그인-2026-09-13.png) | ![대화 화면](docs/화면-대화-2026-09-13.png) |
+
+대화 화면의 이름·내용은 화면을 보여 주기 위해 지어낸 것입니다(실제 사용자·대화가 아닙니다).
+
 ## 설치 3길
 
 1. **Face 설정에서 설치** — Face의 설정 → 모듈 설치 화면에서 이 저장소의 릴리스 zip(`iris-messenger-vX.Y.Z.zip`)을 선택합니다. 서명·지문·계약 버전·요구 등급을 자동으로 검사한 뒤 `modules\messenger\`에 풀립니다.
@@ -16,7 +24,7 @@ Face 사용자 두 명이 초대 코드를 주고받아 서로를 연락처로 �
 
 ## 첫 사용
 
-1. 이메일 주소를 입력하면 6자리 로그인 코드가 메일로 옵니다(링크를 누르는 방식이 아니라 숫자를 직접 입력합니다).
+1. 이메일 주소를 입력하면 로그인 메일이 옵니다. **메일에 6자리 코드가 오면 코드를, 링크만 오면 링크를 누르지 말고 링크 주소를 복사해 붙여 넣습니다(허브의 메일 설정에 따라 다름).** 어느 쪽이든 브라우저에서 링크를 클릭하는 방식은 쓰지 않습니다.
 2. 코드를 입력해 로그인하고, 표시 이름을 정합니다.
 3. **12단어 복구 문구가 한 번 화면에 뜹니다 — 반드시 종이 등 오프라인에 적어 두세요.** 복사 버튼은 일부러 없습니다(클립보드에 남는 것을 막기 위해). 이 12단어를 잃으면 기기를 바꿨을 때 지난 대화를 복원할 수 없습니다.
 4. 대화하고 싶은 상대와 **초대 코드**를 서버 밖의 경로(카카오톡, 문자, 대면 등)로 주고받습니다.
@@ -68,7 +76,7 @@ An end-to-end encrypted (E2EE) person-to-person messaging module that plugs into
 
 **Install (3 ways).** ① Face Settings → Install Module → pick the release zip (signature/fingerprint/contract/grade checked automatically). ② Manually unzip the release into Face's `modules\messenger\`. ③ Developer junction: clone this repo and junction `module\` into `modules\messenger\`.
 
-**First use.** Email → 6-digit login code (typed in, not a clicked link) → display name → a 12-word recovery phrase is shown once (write it down offline; no copy button, to avoid clipboard leakage) → exchange an invite code out-of-band with a contact → **compare the 8-character key fingerprint out-of-band before accepting** (this is the only defense against a server-side key-swap/MITM attack) → chat once accepted.
+**First use.** Email → a login mail: if it carries a 6-digit code, type the code; if it carries only a link, do **not** click it — copy the link address and paste it in (which of the two you get depends on the hub's mail configuration) → display name → a 12-word recovery phrase is shown once (write it down offline; no copy button, to avoid clipboard leakage) → exchange an invite code out-of-band with a contact → **compare the 8-character key fingerprint out-of-band before accepting** (this is the only defense against a server-side key-swap/MITM attack) → chat once accepted.
 
 **What the server knows / doesn't know:** email, display name, public key, contact relationships, and send/receive metadata (who-to-whom-when) — never message or file contents, filenames, private keys, or the 12-word phrase. Details: [`hub/server/처리방침.md`](hub/server/처리방침.md) (Korean; the privacy notice governing the official hub).
 

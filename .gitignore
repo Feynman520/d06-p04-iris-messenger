@@ -5,6 +5,7 @@ dist/
 .env.local
 .vercel
 docs/구현계획*
+docs/로드맵.md
 .superpowers/
 module/lib/
 *.zip
