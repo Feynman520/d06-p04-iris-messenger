@@ -3,15 +3,22 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { readEnv } from '../../hub/server/deploy.mjs';
+import { loadEnv } from '../../hub/server/deploy.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 export function loadHub() { return JSON.parse(fs.readFileSync(path.join(root, 'module', 'hub.json'), 'utf8')); }
-export function loadSecrets() { return readEnv(path.join(process.env.CLAUDE_CONFIG_DIR || 'C:/IRIS/_agent/claude', 'secrets', '.env')); }
+export function loadSecrets() { return loadEnv().env; }
+/** service role key: 일반 이름이 먼저, 이 저장소 저자의 계정별 이름이 그 다음. */
+export function serviceRoleKey() {
+  const { env, file } = loadEnv();
+  const k = env.SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_SERVICE_ROLE_KEY_IRIS_MESSENGER;
+  if (!k) throw new Error(`SUPABASE_SERVICE_ROLE_KEY missing in ${file}`);
+  return k;
+}
 const hub = loadHub();
-const SR = () => { const k = loadSecrets().SUPABASE_SERVICE_ROLE_KEY_IRIS_MESSENGER; if (!k) throw new Error('SUPABASE_SERVICE_ROLE_KEY_IRIS_MESSENGER missing'); return k; };
 async function adm(method, p, body) {
-  const r = await fetch(`${hub.url}${p}`, { method, headers: { apikey: SR(), Authorization: `Bearer ${SR()}`, 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
+  const SR = serviceRoleKey();
+  const r = await fetch(`${hub.url}${p}`, { method, headers: { apikey: SR, Authorization: `Bearer ${SR}`, 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
   const t = await r.text(); if (!r.ok) throw new Error(`${method} ${p} → ${r.status} ${t.slice(0, 300)}`); return t ? JSON.parse(t) : null;
 }
 export async function adminCreateUser(email) { const u = await adm('POST', '/auth/v1/admin/users', { email, email_confirm: true }); return { id: u.id }; }

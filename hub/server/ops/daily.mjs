@@ -1,20 +1,19 @@
 // IRIS Messenger · © 2026 Sejun Ham (함세준) · MIT · https://feynman520.github.io/card/#home
 // 운영 일일 점검: ① Storage `files` 버킷의 90일 지난 파일 정리(배치 100개씩) ② 무료 한도(DB 500MB·Storage 1GB·가입자 50,000) 대비 사용률 보고, 80% 초과 시 stderr WARN
 // ③ --cleanup 이면 pg_cron 없는 허브를 위해 select public.cleanup()을 대신 호출. 사용: node hub/server/ops/daily.mjs [--dry] [--cleanup]
-// 자세한 절차는 hub/server/운영.md ③항 참고. service role key(SUPABASE_SERVICE_ROLE_KEY_IRIS_MESSENGER)는 secrets .env 에서만 읽는다.
+// 자세한 절차는 hub/server/운영.md ③항 참고. service role key(SUPABASE_SERVICE_ROLE_KEY)는 secrets .env 에서만 읽는다.
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { readEnv, runSql } from '../deploy.mjs';
+import { loadEnv, runSql } from '../deploy.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const ref = JSON.parse(fs.readFileSync(path.join(here, '..', 'hub-ref.json'), 'utf8'));
 const HUB_URL = ref.url;
 
-const secretsPath = path.join(process.env.CLAUDE_CONFIG_DIR || 'C:/IRIS/_agent/claude', 'secrets', '.env');
-const secrets = readEnv(secretsPath);
-const SERVICE_ROLE_KEY = secrets.SUPABASE_SERVICE_ROLE_KEY_IRIS_MESSENGER;
-if (!SERVICE_ROLE_KEY) { console.error('SUPABASE_SERVICE_ROLE_KEY_IRIS_MESSENGER missing in ' + secretsPath); process.exit(2); }
+const { env: secrets, file: secretsPath } = loadEnv();
+const SERVICE_ROLE_KEY = secrets.SUPABASE_SERVICE_ROLE_KEY || secrets.SUPABASE_SERVICE_ROLE_KEY_IRIS_MESSENGER;
+if (!SERVICE_ROLE_KEY) { console.error('SUPABASE_SERVICE_ROLE_KEY missing in ' + secretsPath); process.exit(2); }
 
 const args = process.argv.slice(2);
 const dry = args.includes('--dry');

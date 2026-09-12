@@ -9,7 +9,7 @@ import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { App } from '../module/app.mjs';
-import { adminCreateUser, adminDeleteUser, adminSignIn, asUser, loadHub, loadSecrets } from './lib/admin.mjs';
+import { adminCreateUser, adminDeleteUser, adminSignIn, asUser, loadHub, serviceRoleKey } from './lib/admin.mjs';
 
 let pass = 0, fail = 0;
 const ok = (c, name, extra = '') => { c ? pass++ : fail++; console.log(`${c ? 'PASS' : 'FAIL'} ${name}${extra ? ` — ${extra}` : ''}`); };
@@ -27,8 +27,7 @@ const timings = [];    // ['이름 1234ms', …] — 보고서에 붙인다
 // 서비스 롤 열쇠는 admin.mjs 를 통해서만 얻고, 어디에도 찍지 않는다.
 async function adminDeleteObjects(prefixes) {
   if (!prefixes.length) return 0;
-  const key = loadSecrets().SUPABASE_SERVICE_ROLE_KEY_IRIS_MESSENGER;
-  if (!key) throw new Error('SUPABASE_SERVICE_ROLE_KEY_IRIS_MESSENGER missing');
+  const key = serviceRoleKey();
   const r = await fetch(`${hub.url}/storage/v1/object/files`, {
     method: 'DELETE',
     headers: { apikey: key, Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
@@ -56,6 +55,7 @@ async function makePerson(tag, displayName) {
     expires_at: Number(s.expires_at) || Math.floor(Date.now() / 1000) + Number(s.expires_in || 3600),
     user: { id: s.user.id, email: s.user.email },
   });
+  await app.adoptSession();                      // 계정 폴더(state\accounts\<번호>)를 올린다
   await app.setupIdentity({ displayName });      // 12단어를 돌려주지만 절대 출력하지 않는다
   const person = { tag, id, email, token: s.access_token, stateDir, app, m: app.messages, c: app.contacts };
   people.push(person);

@@ -1,8 +1,8 @@
 // IRIS Messenger · © 2026 Sejun Ham (함세준) · MIT · https://feynman520.github.io/card/#home
 // V3 verify-rls: 가짜 사용자 A·B·C 로 RLS·함수 경계를 확인한다. 정책을 바꿀 때마다 실행. 사용: npm run verify:rls
-import { adminCreateUser, adminDeleteUser, adminSignIn, asUser, loadHub, loadSecrets } from './lib/admin.mjs';
+import { adminCreateUser, adminDeleteUser, adminSignIn, asUser, loadHub, serviceRoleKey } from './lib/admin.mjs';
 let pass = 0, fail = 0;
-const ok = (c, name) => { c ? pass++ : fail++; console.log(`${c ? 'PASS' : 'FAIL'} ${name}`); };
+const ok = (c, name, extra = '') => { c ? pass++ : fail++; console.log(`${c ? 'PASS' : 'FAIL'} ${name}${extra ? ` — ${extra}` : ''}`); };
 const ts = Date.now(); const users = []; const objects = [];
 const pk = (ch) => Buffer.alloc(32, ch).toString('base64'); // 44자 base64 (형식만)
 const hub = loadHub();
@@ -10,8 +10,7 @@ const hub = loadHub();
 // 검사가 올린 Storage 객체를 서비스 롤로 지운다(e2e-live.mjs 와 같은 길). 열쇠는 어디에도 찍지 않는다.
 async function adminDeleteObjects(prefixes) {
   if (!prefixes.length) return 0;
-  const key = loadSecrets().SUPABASE_SERVICE_ROLE_KEY_IRIS_MESSENGER;
-  if (!key) throw new Error('SUPABASE_SERVICE_ROLE_KEY_IRIS_MESSENGER missing');
+  const key = serviceRoleKey();
   const r = await fetch(`${hub.url}/storage/v1/object/files`, {
     method: 'DELETE',
     headers: { apikey: key, Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
@@ -84,8 +83,19 @@ try {
   ok((await dl(B, `${A.id}/${fid}`)) === 200, 'storage: recipient reads after message row');
   ok((await dl(C, `${A.id}/${fid}`)) >= 400, 'storage: third party cannot read');
   r = await rpc(C, 'delete_me'); ok(r.status === 200 || r.status === 204, 'delete_me (C)'); users.splice(users.findIndex(u => u.n === 'c'), 1);
+  // 0003: 내부 전용 함수는 로그인한 사용자가 부를 수 없다(Supabase 기본 EXECUTE 권한 회수).
+  // v_me 에 진짜 사용자 번호를 넣는다 — 회수가 안 됐다면 함수가 실제로 성공해 이 검사가 제대로 터진다.
+  r = await rpc(A, 'cleanup'); ok(r.status >= 400, 'rpc cleanup: authenticated 거부 (0003)', `status=${r.status}`);
+  r = await rpc(A, 'note_invite_attempt', { v_me: A.id }); ok(r.status >= 400, 'rpc note_invite_attempt: authenticated 거부 (0003)', `status=${r.status}`);
+  r = await asUser(A.token, 'GET', '/rest/v1/invite_attempts'); ok(r.status >= 400 || (Array.isArray(r.body) && r.body.length === 0), 'invite_attempts: 사용자에게 보이지 않는다');
+  // contacts 는 읽기만 열려 있다 — 쓰기·고치기·지우기는 전부 rpc(respond_contact)를 거쳐야 한다.
+  r = await asUser(A.token, 'POST', '/rest/v1/contacts', { user_a: A.id, user_b: B.id, status: 'accepted', requested_by: A.id }); ok(r.status >= 400, 'contacts: 직접 insert → 거부');
+  r = await asUser(A.token, 'PATCH', '/rest/v1/contacts?status=eq.accepted', { status: 'blocked' }); ok(r.status >= 400 || (Array.isArray(r.body) && r.body.length === 0), 'contacts: 직접 PATCH → 0행');
+  r = await asUser(A.token, 'DELETE', '/rest/v1/contacts?status=eq.accepted'); ok(r.status >= 400 || (Array.isArray(r.body) && r.body.length === 0), 'contacts: 직접 DELETE → 0행');
+  // 1차 범위에는 삭제 기능이 없다 — 보낸 사람도 자기 편지를 지울 수 없다(messages_delete 정책 제거).
+  r = await asUser(A.token, 'DELETE', `/rest/v1/messages?id=eq.${mid}`); ok(r.status >= 400 || (Array.isArray(r.body) && r.body.length === 0), 'messages: 보낸 사람의 DELETE → 0행 (0003)', `status=${r.status}`);
   r = await asUser(A.token, 'GET', '/rest/v1/meta?key=eq.schema_version'); ok(r.status === 200 && r.body[0]?.value === '1', 'meta readable');
-  r = await asUser(A.token, 'GET', '/rest/v1/meta?key=eq.hardening'); ok(r.status === 200 && r.body[0]?.value === '0002', 'meta: hardening = 0002');
+  r = await asUser(A.token, 'GET', '/rest/v1/meta?key=eq.hardening'); ok(r.status === 200 && r.body[0]?.value === '0003', 'meta: hardening = 0003');
 } catch (e) {
   // 검사 도중 어디서든 터져도 셈은 남긴다 — 한 줄 요약 없이 끝나면 "몇 개가 통과했나"를 알 수 없다.
   fail += 1;
