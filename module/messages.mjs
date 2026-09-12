@@ -14,6 +14,9 @@ export const RISKY_EXT = /\.(exe|bat|cmd|ps1|js|mjs|vbs|msi|scr|com|pif|reg|hta|
 
 const MAX_BATCH = 200;
 const BACKOFF_MIN = 1000, BACKOFF_MAX = 60000, POLL_MS = 60000, WS_RETRY_MS = 600000;
+// 연결된 뒤의 안전망: 구독이 받아들여진(ack) 바로 그 ms 사이에 들어온 줄은 도어벨을 못 울린다 →
+// 2초 뒤 한 번 더 훑고, 연결돼 있는 동안 2분마다 한 번씩 훑는다(놓친 도어벨·조용한 끊김 대비).
+const SOON_MS = 2000, SAFETY_MS = 120000;
 
 // 파일 이름에서 경로·제어문자를 걷어낸다(상대가 보낸 이름을 그대로 믿지 않는다).
 const safeName = (n) => String(n || 'file').replace(/[\\/:*?"<>|\x00-\x1f]/g, '_').replace(/^\.+/, '').trim().slice(0, 120) || 'file';
@@ -34,6 +37,8 @@ export class Messages {
   #backoff = BACKOFF_MIN;
   #poll = null;
   #retryWs = null;
+  #soon = null;     // 연결 직후 한 번(2초)
+  #safety = null;   // 연결돼 있는 동안 2분마다
   #conn = 'stopped';
   #bgJobs = new Set();
   #queues = new Map(); // 이름 → 직렬화 사슬
@@ -362,7 +367,16 @@ export class Messages {
     this.timers.clearTimeout(this.#retryWs);
     this.#poll = null;
     this.#retryWs = null;
+    this.#clearSafety();
     this.#setConn('stopped');
+  }
+
+  // 연결이 살아 있을 때만 도는 안전망 타이머를 거둔다(끊김·느림·정지 어디서든 같은 한 곳).
+  #clearSafety() {
+    this.timers.clearTimeout(this.#soon);
+    this.timers.clearInterval(this.#safety);
+    this.#soon = null;
+    this.#safety = null;
   }
 
   async #connect() {
@@ -399,10 +413,15 @@ export class Messages {
       this.#poll = null;
       this.#setConn('online');
       this.#bg(this.gapFill()); // 끊긴 사이에 온 편지를 곧바로 메운다
+      // ack 직후의 ms 창과 놓친 도어벨을 메우는 안전망: 2초 뒤 한 번, 그 뒤 2분마다.
+      this.#clearSafety();
+      this.#soon = this.timers.setTimeout(() => { this.#soon = null; this.#bg(this.gapFill()); }, SOON_MS);
+      this.#safety = this.timers.setInterval(() => this.#bg(this.gapFill()), SAFETY_MS);
       return;
     }
     try { this.#sub?.close(); } catch { /* noop */ }
     this.#sub = null;
+    this.#clearSafety(); // 끊긴 동안에는 폴링(slow)이 그 자리를 맡는다
     this.#fails += 1;
     this.timers.clearTimeout(this.#retryWs);
     if (this.#fails >= 3) {

@@ -103,6 +103,47 @@ test('Contacts: invite codes, mutual accept, key pinning', async (t) => {
   assert.equal(onDisk2.pins.u2, undefined);
 });
 
+test('Contacts.sync: 지문을 맞춰 본 적 없이 고정된 열쇠는 needsVerify 로 표시된다(TOFU)', async (t) => {
+  const mock = await startMock();
+  t.after(() => mock.close());
+  const stateDir = fssync.mkdtempSync(path.join(os.tmpdir(), 'iris-contacts-'));
+  const { contacts } = setupContacts(mock, stateDir);
+  await contacts.load();
+
+  // 상대가 먼저 초대하고 내가 (다른 기기에서) 수락해 둔 관계 — 이 기기에는 pin 이 없다.
+  const otherKeys = deriveKeyPair(generateEntropy());
+  const otherPub = b64.enc(otherKeys.publicRaw);
+  mock.store.contacts.push({ user_a: 'u1', user_b: 'u2', status: 'accepted', requested_by: 'u2', blocked_by: null });
+  mock.store.profiles.push({ id: 'u2', display_name: '보라', public_key: otherPub, key_version: 1 });
+
+  await contacts.sync();
+  let entry = contacts.get('u2');
+  assert.equal(entry.status, 'accepted');
+  assert.equal(entry.keyChanged, false);
+  assert.equal(entry.needsVerify, true, '서버에서 받아 그대로 고정한 열쇠');
+  assert.deepEqual(Buffer.from(contacts.publicKeyOf('u2')), Buffer.from(otherKeys.publicRaw), '편지를 열 수는 있어야 한다');
+  const onDisk = JSON.parse(fssync.readFileSync(path.join(stateDir, 'contacts.json'), 'utf8'));
+  assert.equal(onDisk.pins.u2.pinnedBy, 'sync');
+  assert.equal(onDisk.pins.u2.needsVerify, true);
+
+  // 다시 sync() 해도 표식은 그대로 남는다(사람이 확인하기 전까지).
+  await contacts.sync();
+  assert.equal(contacts.get('u2').needsVerify, true);
+
+  // 사용자가 지문을 직접 대조하고 "새 지문 확인"을 누르면 표식이 사라진다.
+  await contacts.acceptKeyChange('u2');
+  entry = contacts.get('u2');
+  assert.equal(entry.needsVerify, false);
+  assert.deepEqual(Buffer.from(contacts.publicKeyOf('u2')), Buffer.from(otherKeys.publicRaw), '열쇠 자체는 그대로');
+  const after = JSON.parse(fssync.readFileSync(path.join(stateDir, 'contacts.json'), 'utf8'));
+  assert.equal(after.pins.u2.needsVerify, undefined);
+  assert.equal(after.pins.u2.pinnedBy, undefined);
+
+  // 초대 코드로 지문을 맞춰 고정한 열쇠에는 애초에 표식이 붙지 않는다.
+  await contacts.sync();
+  assert.equal(contacts.get('u2').needsVerify, false);
+});
+
 test('Contacts.acceptInvite: server accept_invite invalid/rate_limited/blocked → throws, no pin', async (t) => {
   const mock = await startMock();
   t.after(() => mock.close());

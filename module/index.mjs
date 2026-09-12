@@ -20,7 +20,7 @@ const out = (o) => { try { process.stdout.write(`${JSON.stringify(o)}\n`); } cat
 const logErr = (m) => { try { process.stderr.write(`[messenger] ${m}\n`); } catch { /* noop */ } };
 
 let panelHtml = PLACEHOLDER;
-try { panelHtml = fs.readFileSync(path.join(HERE, 'panel.html'), 'utf8'); } catch { /* Task 10 전에는 자리만 지킨다 */ }
+try { panelHtml = fs.readFileSync(path.join(HERE, 'panel.html'), 'utf8'); } catch { /* 화면 파일이 없으면 자리만 지킨다 */ }
 
 const app = new App({ log: logErr });
 let server = null;

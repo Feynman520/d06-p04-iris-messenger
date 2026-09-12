@@ -44,8 +44,10 @@ async function world(t) {
   };
   const json = async (p, o) => { const r = await api(p, o); return { status: r.status, body: await r.json() }; };
   const state = async () => (await json('/api/state')).body;
+  // 계정 자료는 stateDir\accounts\<사용자 번호>\ 아래에만 쌓인다.
+  const acct = (uid, ...rest) => path.join(dir, 'accounts', uid, ...rest);
 
-  return { dir, fake, app, base, api, json, state, sent, logs };
+  return { dir, fake, app, base, api, json, state, sent, logs, acct };
 }
 
 // 로그인 + 신원까지 마쳐 stage 'in'으로 만든다.
@@ -177,6 +179,7 @@ test('⑦ /api/events 첫 청크는 event: state', async (t) => {
 
 test('⑧ 10MB + 1바이트 업로드는 413, 상대가 없거나 엉터리면 본문을 읽기 전에 400', async (t) => {
   const w = await world(t);
+  await signIn(w); // 편지 기능은 로그인한 계정의 폴더 위에서만 산다
   const peer = crypto.randomUUID();
   const big = Buffer.alloc(FILE_MAX + 1, 0x41);
   const r = await w.api(`/api/send-file?peer=${peer}&name=big.bin`, { method: 'POST', body: big, raw: true });
@@ -213,41 +216,51 @@ test('⑩ /api/settings 로 알림 끄기가 상태에 반영된다', async (t) 
   assert.equal(saved.notifyMuted, true);
 });
 
-test('⑪ 기록 조회·읽음 처리는 상대가 없어도 안전하게 빈 값을 돌려준다', async (t) => {
+test('⑪ 기록 조회·읽음 처리는 상대가 없어도 안전하게 빈 값을 돌려준다(상대 번호는 uuid만)', async (t) => {
   const w = await world(t);
   await signIn(w);
-  const hist = await w.json('/api/messages/u2?limit=10');
+  const peer = crypto.randomUUID();
+  const hist = await w.json(`/api/messages/${peer}?limit=10`);
   assert.equal(hist.status, 200);
   assert.deepEqual(hist.body.items, []);
 
-  const read = await w.json('/api/read', { method: 'POST', body: { peer: 'u2' } });
+  const read = await w.json('/api/read', { method: 'POST', body: { peer } });
   assert.equal(read.status, 200);
   assert.equal(w.sent.some((o) => o.t === 'badge'), true, '읽음 처리 뒤에는 배지를 다시 알린다');
+
+  // uuid 가 아닌 상대 번호는 본문·기록을 건드리기 전에 400으로 막는다.
+  const badHist = await w.json('/api/messages/u2');
+  assert.equal(badHist.status, 400);
+  assert.equal(badHist.body.error, 'bad peer id');
+  const badRead = await w.json('/api/read', { method: 'POST', body: { peer: 'u2' } });
+  assert.equal(badRead.status, 400);
+  assert.equal(badRead.body.error, 'bad peer id');
 });
 
 test('⑫ 로그아웃하면 stage "out"으로 돌아가고 세션 파일이 사라진다', async (t) => {
   const w = await world(t);
   await signIn(w);
-  assert.equal(fssync.existsSync(path.join(w.dir, 'auth.bin')), true);
+  assert.equal(fssync.existsSync(path.join(w.dir, 'auth.bin')), true, '로그인 정보는 뿌리에');
 
   const r = await w.json('/api/logout', { method: 'POST' });
   assert.equal(r.status, 200);
   assert.equal((await w.state()).stage, 'out');
   assert.equal(fssync.existsSync(path.join(w.dir, 'auth.bin')), false);
-  assert.equal(fssync.existsSync(path.join(w.dir, 'keys.bin')), true, '열쇠는 남는다(같은 계정으로 다시 로그인)');
+  assert.equal(fssync.existsSync(w.acct('u1', 'keys.bin')), true, '열쇠는 남는다(같은 계정으로 다시 로그인)');
 });
 
 test('⑬ 탈퇴하면 서버 행과 로컬 흔적이 모두 사라지고 stage "out"으로 돌아간다', async (t) => {
   const w = await world(t);
   await signIn(w);
   assert.equal(w.fake.profiles.length, 1);
+  assert.equal(fssync.existsSync(w.acct('u1', 'keys.bin')), true);
 
   const r = await w.json('/api/delete-account', { method: 'POST' });
   assert.equal(r.status, 200);
   assert.equal((await w.state()).stage, 'out');
   assert.equal(w.fake.profiles.length, 0);
   assert.equal(fssync.existsSync(path.join(w.dir, 'auth.bin')), false);
-  assert.equal(fssync.existsSync(path.join(w.dir, 'keys.bin')), false);
+  assert.equal(fssync.existsSync(w.acct('u1', 'keys.bin')), false);
 });
 
 test('⑭ 허브 스키마가 모듈보다 새로우면 hubMismatch = module_old', async (t) => {
@@ -317,6 +330,89 @@ test('⑰ /api/identity/rename 은 이름만 바꾼다(열쇠·지문 그대로)
   // 40자는 통과한다(경계).
   const edge = await w.json('/api/identity/rename', { method: 'POST', body: { displayName: '나'.repeat(40) } });
   assert.equal(edge.status, 200);
+});
+
+// ── 검토 지적 반영(fix wave 2, 2026-09-13) ─────────────────────────────────
+
+test('⑱ 계정을 갈아타도 서로의 자료가 섞이지 않는다(계정 폴더 분리)', async (t) => {
+  const w = await world(t);
+  await signIn(w);                                   // u1 로 로그인 + 열쇠
+  const one = await w.state();
+  assert.equal(one.stage, 'in');
+  assert.equal(fssync.existsSync(w.acct('u1', 'keys.bin')), true, 'u1 의 열쇠는 u1 폴더에');
+
+  // u2 로 갈아타기 — 열쇠도 연락처도 편지도 없는 새 계정이어야 한다.
+  await w.json('/api/logout', { method: 'POST' });
+  w.fake.userId = 'u2';
+  await w.json('/api/login/email', { method: 'POST', body: { email: 'other@example.com' } });
+  await w.json('/api/login/code', { method: 'POST', body: { email: 'other@example.com', code: '123456' } });
+  let s = await w.state();
+  assert.equal(s.user.id, 'u2');
+  assert.equal(s.stage, 'identity', '새 계정에는 이 PC의 열쇠가 없다');
+  assert.equal(s.fingerprint, null);
+  assert.deepEqual(s.contacts, []);
+  assert.equal(s.unread.total, 0);
+
+  await w.json('/api/identity', { method: 'POST', body: { displayName: '둘째' } });
+  s = await w.state();
+  assert.equal(s.stage, 'in');
+  assert.notEqual(s.fingerprint, one.fingerprint, '두 계정의 열쇠는 서로 다르다');
+  assert.equal(fssync.existsSync(w.acct('u2', 'keys.bin')), true);
+  assert.equal(fssync.existsSync(w.acct('u1', 'keys.bin')), true, 'u1 의 열쇠는 지워지지 않았다');
+
+  // 다시 u1 로 — 지우지 않았으니 그대로 돌아온다.
+  await w.json('/api/logout', { method: 'POST' });
+  w.fake.userId = 'u1';
+  await w.json('/api/login/email', { method: 'POST', body: { email: 'me@example.com' } });
+  await w.json('/api/login/code', { method: 'POST', body: { email: 'me@example.com', code: '123456' } });
+  s = await w.state();
+  assert.equal(s.stage, 'in');
+  assert.equal(s.fingerprint, one.fingerprint, 'u1 의 열쇠·지문이 그대로 돌아온다');
+  assert.equal(s.displayName, '나', '이름은 서버(profiles)가 정본');
+});
+
+test('⑲ 0.1.0 폴더(뿌리에 흩어진 파일)는 첫 로그인 때 계정 폴더로 옮겨진다', async (t) => {
+  const w = await world(t);
+  // 계정 폴더가 생기기 전 판이 남긴 자리: 연락처 1명 + 빈 outbox
+  const pin = { displayName: '옛 친구', publicKey: Buffer.alloc(32, 7).toString('base64'), keyVersion: 1, pinnedAt: 1 };
+  fssync.writeFileSync(path.join(w.dir, 'contacts.json'), JSON.stringify({ pins: { [crypto.randomUUID()]: pin } }), 'utf8');
+  fssync.writeFileSync(path.join(w.dir, 'outbox.json'), '[]', 'utf8');
+
+  await w.json('/api/login/email', { method: 'POST', body: { email: 'me@example.com' } });
+  await w.json('/api/login/code', { method: 'POST', body: { email: 'me@example.com', code: '123456' } });
+
+  assert.equal(fssync.existsSync(path.join(w.dir, 'contacts.json')), false, '뿌리에서는 사라지고');
+  assert.equal(fssync.existsSync(w.acct('u1', 'contacts.json')), true, '계정 폴더로 옮겨진다');
+  assert.equal(fssync.existsSync(w.acct('u1', 'outbox.json')), true);
+  const s = await w.state();
+  assert.equal(s.contacts.length, 1, '옮긴 연락처가 그대로 보인다');
+  assert.equal(s.contacts[0].displayName, '옛 친구');
+});
+
+test('⑳ 서버에 프로필만 없으면 stage "identity" + profileMissing, 이 PC 열쇠로 등록하면 풀린다', async (t) => {
+  const w = await world(t);
+  await signIn(w);
+  const before = await w.state();
+  assert.equal(before.profileMissing, false);
+
+  w.fake.profiles.length = 0;            // 서버에서 내 프로필 줄만 사라진 상황(탈퇴 뒤 재가입 등)
+  await w.app.init({ stateDir: w.dir }); // 모듈을 다시 시작한 셈
+  let s = await w.state();
+  assert.equal(s.stage, 'identity');
+  assert.equal(s.profileMissing, true);
+  assert.equal(s.keyMismatch, false, '열쇠가 다른 것이 아니라 서버에 줄이 없는 것');
+  assert.equal(s.connection, 'stopped', '프로필이 없으면 연결하지 않는다');
+
+  const r = await w.json('/api/identity/register', { method: 'POST', body: { displayName: '나' } });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.displayName, '나');
+  s = await w.state();
+  assert.equal(s.stage, 'in');
+  assert.equal(s.profileMissing, false);
+  assert.equal(s.fingerprint, before.fingerprint, '열쇠·지문은 그대로다(상대에게 경고가 가지 않는다)');
+  assert.equal(w.fake.profiles.length, 1);
+  assert.equal(w.fake.profiles[0].display_name, '나');
+  assert.equal(w.fake.profiles[0].key_version, 1);
 });
 
 test('⑯ 코드 결함(TypeError)은 속내를 감춘 500, 사용자에게 뜻이 있는 오류는 그대로 400', async (t) => {

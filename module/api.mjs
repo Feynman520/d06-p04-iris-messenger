@@ -5,6 +5,9 @@ import crypto from 'node:crypto';
 import { FILE_MAX } from './messages.mjs';
 
 const JSON_MAX = 1024 * 1024; // 본문 1MB 상한
+// 화면은 단일 파일(인라인 style·script)이고 바깥 자원을 하나도 쓰지 않는다 — 그 사실을 브라우저에게도 못 박는다.
+// connect-src 'self' = 이 모듈 프로세스(127.0.0.1)에만 fetch·EventSource 가 나간다.
+const CSP = "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; form-action 'none'; base-uri 'none'";
 const CONTACT_ACTIONS = new Set(['accept', 'reject', 'block', 'unblock', 'remove', 'trust-key']);
 const PEER_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i; // 허브의 사용자 번호 = uuid
 // 우리 잘못(코드 결함)과 사용자에게 보여 줄 말(잘못된 코드·잠김 등)을 가른다.
@@ -90,6 +93,7 @@ export function createHandler({ app, token, panelHtml = '', out = () => {}, log 
         'Content-Length': body.length,
         'Cache-Control': 'no-store',
         'Referrer-Policy': 'no-referrer', // 주소에 든 토큰이 바깥으로 새지 않게
+        'Content-Security-Policy': CSP,
       });
       return res.end(body);
     }
@@ -129,10 +133,16 @@ export function createHandler({ app, token, panelHtml = '', out = () => {}, log 
       const { displayName } = await readJsonBody(req);
       return sendJson(res, 200, await app.rename(displayName));
     }
+    // 서버에만 프로필이 없을 때: 이 PC의 열쇠 그대로 profiles 한 줄을 만든다(열쇠·지문 불변).
+    if (method === 'POST' && p === '/api/identity/register') {
+      const { displayName } = await readJsonBody(req);
+      return sendJson(res, 200, await app.registerExisting(displayName));
+    }
 
     // ---- 편지 ----
     if (method === 'GET' && seg[1] === 'messages' && seg.length === 3) {
       const peer = decodeURIComponent(seg[2]);
+      if (!PEER_RE.test(peer)) throw badRequest('bad peer id');
       const limit = Number(u.searchParams.get('limit')) || undefined;
       return sendJson(res, 200, { peer, items: need(app.messages).history(peer, limit ? { limit } : {}) });
     }
@@ -154,6 +164,7 @@ export function createHandler({ app, token, panelHtml = '', out = () => {}, log 
     if (method === 'POST' && p === '/api/read') {
       const { peer } = await readJsonBody(req);
       if (!peer) throw badRequest('peer required');
+      if (!PEER_RE.test(peer)) throw badRequest('bad peer id');
       await need(app.messages).markRead(peer);
       const count = app.messages.unread().total;
       out({ t: 'badge', count });

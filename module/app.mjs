@@ -1,6 +1,12 @@
 // IRIS Messenger · © 2026 Sejun Ham (함세준) · MIT · https://feynman520.github.io/card/#home
 // 응용 상태: Face가 준 state 폴더 하나에 Supa·Session·Identity·Contacts·Messages를 묶고
 // 화면이 그릴 수 있는 한 덩어리 state()로 내놓는다. 화면(api.mjs)과 전선(index.mjs)은 이 class만 쓴다.
+//
+// 폴더 나누기: 로그인 정보(auth.bin)와 모듈 설정(settings.json)은 state 폴더 뿌리에 두고,
+// 계정마다 달라지는 것(열쇠·연락처·편지·받은 파일·보낼 것)은 전부 `accounts\<사용자 번호>\` 아래에 둔다.
+// 그래야 한 PC에서 계정을 갈아타도 서로의 자료가 섞이거나 지워지지 않는다.
+import fsSync from 'node:fs';
+import fsp from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Supa } from '../hub/client/supa.mjs';
@@ -8,11 +14,13 @@ import { Session } from '../hub/client/session.mjs';
 import { Identity } from '../hub/client/identity.mjs';
 import { Contacts } from '../hub/client/contacts.mjs';
 import { b64 } from '../hub/client/keys.mjs';
-import { readJson, writeJson } from '../hub/client/store.mjs';
+import { readJson, writeJson, ensureDir } from '../hub/client/store.mjs';
 import { Messages, TEXT_MAX, FILE_MAX, RISKY_EXT } from './messages.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 export const NAME_MAX = 40; // 표시 이름 글자 수 상한(화면·API가 같은 값을 쓴다)
+// 계정 폴더가 생기기 전(0.1.0)의 자리 — 첫 로그인 때 통째로 계정 폴더로 옮긴다.
+const LEGACY_NAMES = ['keys.bin', 'contacts.json', 'messages', 'files', 'outbox.json'];
 
 // 단계(stage): nohub 허브 주소 없음 · out 로그인 전 · code 코드 입력 대기 · identity 열쇠 없음 · in 사용 가능
 export class App {
@@ -24,6 +32,8 @@ export class App {
     this.dpapi = dpapi; // undefined면 Session·Identity가 실제 DPAPI를 쓴다
     this.makeSupa = makeSupa || ((conf) => new Supa({ ...conf, log }));
     this.stateDir = null;
+    this.accountId = null;   // 지금 자료가 올라와 있는 계정(사용자 번호)
+    this.accountDir = null;  // stateDir\accounts\<사용자 번호>
     this.supa = null;
     this.session = null;
     this.identity = null;
@@ -34,6 +44,7 @@ export class App {
     this.hubCustom = false;
     this.hubMismatch = null;
     this.keyMismatch = false; // 서버가 아는 내 공개키 ≠ 이 컴퓨터의 열쇠
+    this.profileMissing = false; // 이 PC에는 열쇠가 있는데 서버에는 내 프로필 줄이 없다
     this.displayName = null;
     this.theme = null;
     this.lang = 'ko';
@@ -54,7 +65,12 @@ export class App {
     this.stateDir = stateDir;
     this.hubMismatch = null;
     this.keyMismatch = false;
+    this.profileMissing = false;
     this.#pendingEmail = null;
+    // 새로 시작하는 길이므로 계정 자료도 새 Supa 에 맞춰 다시 올린다(옛 Supa 를 쥔 채로 남지 않게).
+    this.accountId = null;
+    this.accountDir = null;
+    this.identity = this.contacts = this.messages = null;
 
     const mod = (await readJson(path.join(HERE, 'module.json'), {})) || {};
     this.version = mod.version || '0.0.0';
@@ -85,12 +101,38 @@ export class App {
       return this;
     }
 
-    const me = () => this.session?.user?.id ?? null;
     this.session = new Session({ stateDir, supa: this.supa, dpapi: this.dpapi });
-    this.identity = new Identity({ stateDir, supa: this.supa, dpapi: this.dpapi });
-    this.contacts = new Contacts({ stateDir, supa: this.supa, identity: this.identity, me });
+
+    // 여기까지는 전부 로컬 파일 읽기다 — 로그인 전에는 네트워크를 만지지 않는다.
+    try { await this.session.load(); } catch (e) { this.log(`session.load: ${e.message}`); }
+    await this.#useAccount(this.session?.user?.id ?? null);
+
+    await this.#goLive();
+    return this;
+  }
+
+  // 로그인한 계정의 자료를 올린다. 계정이 바뀌면 옛 계정의 것은 손대지 않고(폴더에 그대로 남는다)
+  // 메모리에서만 내려놓고 새 계정 폴더로 다시 읽는다.
+  async #useAccount(uid) {
+    if (this.accountId === uid && this.identity) return;
+    this.messages?.stop();
+    this.accountId = uid ?? null;
+    this.accountDir = null;
+    this.identity = this.contacts = this.messages = null;
+    this.keyMismatch = false;
+    this.profileMissing = false;
+    if (!uid || !this.supa) return;
+
+    const dir = path.join(this.stateDir, 'accounts', String(uid));
+    await this.#migrateLegacy(dir);
+    await ensureDir(dir);
+    this.accountDir = dir;
+
+    const me = () => this.session?.user?.id ?? null;
+    this.identity = new Identity({ stateDir: dir, supa: this.supa, dpapi: this.dpapi });
+    this.contacts = new Contacts({ stateDir: dir, supa: this.supa, identity: this.identity, me });
     this.messages = new Messages({
-      stateDir,
+      stateDir: dir,
       supa: this.supa,
       identity: this.identity,
       contacts: this.contacts,
@@ -98,19 +140,30 @@ export class App {
       onEvent: (e) => this.#emit(e),
       log: this.log,
     });
-
-    // 여기까지는 전부 로컬 파일 읽기다 — 로그인 전에는 네트워크를 만지지 않는다.
-    try { await this.session.load(); } catch (e) { this.log(`session.load: ${e.message}`); }
     await this.identity.load();
     await this.contacts.load();
     await this.messages.load();
+  }
 
-    await this.#goLive();
-    return this;
+  // 0.1.0에서 올라온 PC: 계정 폴더가 아직 없고 뿌리에 옛 파일이 있으면 그대로 옮겨 준다(복사가 아니라 이동).
+  async #migrateLegacy(dir) {
+    if (fsSync.existsSync(dir)) return;
+    const found = LEGACY_NAMES.filter((n) => fsSync.existsSync(path.join(this.stateDir, n)));
+    if (!found.length) return;
+    await ensureDir(dir);
+    for (const name of found) {
+      try {
+        await fsp.rename(path.join(this.stateDir, name), path.join(dir, name));
+      } catch (e) {
+        this.log(`migrate ${name}: ${e.message}`); // 옮기지 못한 것은 그 자리에 두고 새로 시작한다
+      }
+    }
+    this.log(`migrated ${found.length} legacy item(s) into accounts/${path.basename(dir)}`);
   }
 
   // 로그인 + 열쇠가 모두 갖춰진 뒤에만: 허브 판 확인 → 연락처 맞추기 → 편지 연결.
   async #goLive() {
+    this.profileMissing = false;
     if (!this.session?.user || !this.identity?.publicRaw) return;
     await this.checkSchema();
     try {
@@ -123,6 +176,9 @@ export class App {
       // 서버가 아는 내 공개키와 이 컴퓨터의 열쇠가 다르면(다른 기기에서 열쇠를 재설정한 경우 등)
       // 그 열쇠로는 아무 편지도 열 수 없다 — 연결하지 않고 신원 화면으로 되돌린다.
       this.keyMismatch = !!(profile?.public_key && profile.public_key !== b64.enc(this.identity.publicRaw));
+      // 열쇠는 이 PC에 있는데 서버에 프로필 줄이 아예 없는 경우(탈퇴 뒤 재가입, 다른 허브의 계정 등):
+      // 상대가 나를 찾을 수도, 내가 초대 코드를 만들 수도 없다 — 신원 화면으로 돌려 등록·복원하게 한다.
+      this.profileMissing = !profile;
       // 서버의 이름이 정본 — 다른 기기에서 바꿨거나 다른 계정으로 갈아탄 경우를 맞춘다.
       const name = profile?.display_name || null;
       if (!this.keyMismatch && name && name !== this.displayName) {
@@ -132,7 +188,7 @@ export class App {
     } catch (e) {
       this.log(`profile: ${e.message}`); // 오프라인이면 마지막으로 알던 이름·판정을 그대로 쓴다
     }
-    if (this.hubMismatch || this.keyMismatch) return; // 맞지 않는 허브·열쇠에는 연결하지 않는다
+    if (this.hubMismatch || this.keyMismatch || this.profileMissing) return; // 맞지 않는 허브·열쇠에는 연결하지 않는다
     this.messages.start();
   }
 
@@ -157,7 +213,7 @@ export class App {
   stage() {
     if (!this.hubConf || !this.supa) return 'nohub';
     if (!this.session?.user) return this.#pendingEmail ? 'code' : 'out';
-    if (!this.identity?.publicRaw || this.keyMismatch) return 'identity';
+    if (!this.identity?.publicRaw || this.keyMismatch || this.profileMissing) return 'identity';
     return 'in';
   }
 
@@ -173,6 +229,7 @@ export class App {
       hub: { url: this.hubConf?.url ?? null, custom: this.hubCustom },
       hubMismatch: this.hubMismatch ?? null,
       keyMismatch: !!this.keyMismatch,
+      profileMissing: !!this.profileMissing,
       connection: this.messages?.connection ?? 'stopped',
       unread: this.messages?.unread() ?? { total: 0, byPeer: {} },
       contacts: this.contacts?.list() ?? [],
@@ -233,7 +290,18 @@ export class App {
     this.#needHub();
     await this.session.verifyCode(email, codeOrLink);
     this.#pendingEmail = null;
-    await this.identity.load();
+    // 지난번과 다른 계정으로 들어왔으면 그 계정의 폴더로 통째로 갈아 끼운다(옛 계정 자료는 그대로 남는다).
+    await this.#useAccount(this.session.user?.id ?? null);
+    await this.#goLive();
+    this.#emitState();
+    return { stage: this.stage() };
+  }
+
+  // 로그인 절차(login1·login2)를 거치지 않고 바깥에서 세션이 주입된 경우(라이브 검사 등)
+  // 그 계정의 폴더를 올려 준다 — login2 가 하는 일 가운데 세션 확인만 뺀 것.
+  async adoptSession() {
+    this.#needHub();
+    await this.#useAccount(this.session?.user?.id ?? null);
     await this.#goLive();
     this.#emitState();
     return { stage: this.stage() };
@@ -246,6 +314,7 @@ export class App {
     this.#pendingEmail = null;
     this.hubMismatch = null;
     this.keyMismatch = false;
+    this.profileMissing = false;
     this.#emitState();
     return { stage: this.stage() };
   }
@@ -287,6 +356,23 @@ export class App {
     await this.#goLive();
     this.#emitState();
     return created ? { words: created } : {};
+  }
+
+  // 이 PC에는 열쇠가 있는데 서버에만 프로필 줄이 없을 때(profileMissing): 지금 열쇠 그대로 한 줄을 만든다.
+  // 열쇠·지문은 바뀌지 않으므로 이미 나를 고정(pin)해 둔 상대에게는 아무 경고도 가지 않는다.
+  async registerExisting(displayName) {
+    this.#needSession();
+    if (!this.identity?.publicRaw) throw new Error('no key on this pc');
+    const name = String(displayName || this.displayName || '').trim();
+    if (!name) throw new Error('display name required');
+    if ([...name].length > NAME_MAX) throw new Error('display name too long');
+    await this.#registerProfile(name);
+    this.displayName = name;
+    this.profileMissing = false;
+    await this.#saveSettings({ displayName: name });
+    await this.#goLive();
+    this.#emitState();
+    return { displayName: name };
   }
 
   // Identity.restore는 profiles 행을 만들지 않는다 — 없으면 여기서 한 번 등록한다.

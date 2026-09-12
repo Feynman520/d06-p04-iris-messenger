@@ -66,6 +66,8 @@ export class Contacts {
       publicKey,
       keyVersion,
       keyChanged: st?.keyChanged ?? false,
+      // 초대 코드로 지문을 맞춰 본 적 없이 sync()가 먼저 고정한 열쇠 — 화면이 "지문 재확인 필요"로 표시한다.
+      needsVerify: !!pin?.needsVerify,
       requestedByMe: st?.requestedByMe ?? false,
     };
   }
@@ -102,6 +104,8 @@ export class Contacts {
     if (status === 'invalid') throw new Error(MSG_INVALID);
     if (status === 'rate_limited') throw new Error(MSG_RATE_LIMITED);
     if (status === 'blocked') throw new Error(MSG_BLOCKED);
+    // 상대 번호가 없으면 누구의 열쇠인지도 모른다 — 고정(pin)하지 않는다.
+    if (!otherId) throw new Error(MSG_INVALID);
     const live = { displayName: row.display_name, publicKey: row.public_key, keyVersion: row.key_version };
     this.#pins[otherId] = { ...live, pinnedAt: Date.now() };
     await this.#persist();
@@ -162,8 +166,11 @@ export class Contacts {
       const pin = this.#pins[other];
       let keyChanged = false;
       if (pin && p) keyChanged = pin.publicKey !== p.public_key || pin.keyVersion !== p.key_version;
+      // 고정된 열쇠가 아직 없는 수락된 관계(상대가 먼저 수락했거나, 열쇠 파일만 잃은 경우):
+      // 편지를 열려면 열쇠가 있어야 하므로 서버 값을 일단 고정하되(trust on first use),
+      // 사람이 지문을 직접 대조하기 전까지는 "재확인 필요" 표식을 달아 둔다.
       if (status === 'accepted' && !pin && p) {
-        this.#pins[other] = { ...live, pinnedAt: Date.now() };
+        this.#pins[other] = { ...live, pinnedAt: Date.now(), pinnedBy: 'sync', needsVerify: true };
         dirty = true;
       }
       this.#state.set(other, { status, requestedByMe, keyChanged, live });
@@ -172,13 +179,16 @@ export class Contacts {
     return this.list();
   }
 
-  // 사용자가 새 지문을 눈으로 확인했을 때만 호출: pin을 서버(=현재 live) 값으로 교체한다.
+  // 사용자가 지문을 눈으로 확인했을 때만 호출: pin을 서버(=현재 live) 값으로 교체하고
+  // "재확인 필요" 표식(needsVerify·pinnedBy)을 떨어뜨린다 — 이제 사람이 직접 확인한 열쇠다.
   acceptKeyChange(id) {
     const st = this.#state.get(id);
-    if (!st?.live) return;
-    this.#pins[id] = { ...st.live, pinnedAt: Date.now() };
-    this.#state.set(id, { ...st, keyChanged: false });
-    this.#persist().catch(() => {});
+    const src = st?.live ?? this.#pins[id];
+    if (!src) return;
+    this.#pins[id] = { displayName: src.displayName, publicKey: src.publicKey, keyVersion: src.keyVersion, pinnedAt: Date.now() };
+    if (st) this.#state.set(id, { ...st, keyChanged: false });
+    // 메모리에는 곧바로 반영되고 디스크 쓰기는 배경으로 돈다 — 기다리고 싶은 쪽(시험 등)은 이 약속을 받는다.
+    return this.#persist().catch(() => {});
   }
 
   // 고정된(pin) 공개키만 반환한다 — 서버가 알려주는 최신 값이 아니다.

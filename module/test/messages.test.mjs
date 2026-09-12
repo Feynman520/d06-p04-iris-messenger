@@ -26,7 +26,7 @@ async function waitFor(fn, { timeout = 2000, step = 5 } = {}) {
   throw new Error('waitFor: 시간 안에 조건이 참이 되지 않았다');
 }
 
-// 이 시험에서 필요한 만큼의 Contacts 대역(고정된 공개키 조회만). 실물 연동은 Task 11.
+// 이 시험에서 필요한 만큼의 Contacts 대역(고정된 공개키 조회만). 실물 연동은 app.mjs 가 맡는다.
 const contactsWith = (pairs) => {
   const map = new Map(pairs);
   return { publicKeyOf: (id) => map.get(id) || null, list: () => [...map.keys()].map((id) => ({ id })) };
@@ -544,6 +544,39 @@ test('⑲ markRead는 바뀐 것이 없어도 배지를 다시 알리고, histor
   got[0].read = false;
   assert.equal(B.history(a.id)[0].text, '한 통');
   assert.equal(B.unread().total, 0);
+});
+
+// ── 검토 지적 반영(fix wave 2, 2026-09-13) ─────────────────────────────────
+
+test('㉑ 연결돼 있는 동안 2초·2분 안전망 gapFill이 돈다(끊기면 거둔다)', async (t) => {
+  const { fake, a, b, tempDir, make } = world(t);
+  const timers = fakeTimers();
+  const B = await make(b, a, tempDir('b'), { timers });
+
+  await B.start();
+  assert.equal(B.connection, 'online');
+  const soon = timers.pending().find((x) => x.kind === 'timeout' && x.ms === 2000);
+  const safety = timers.pending().find((x) => x.kind === 'interval' && x.ms === 120000);
+  assert.ok(soon, 'ack 직후 2초 뒤 한 번 더 훑는다');
+  assert.ok(safety, '연결돼 있는 동안 2분마다 훑는다');
+
+  const before = fake.calls.select;
+  await timers.fire(soon.id);
+  await B.settle();
+  assert.ok(fake.calls.select > before, '2초 타이머가 실제로 gapFill을 돈다');
+
+  const before2 = fake.calls.select;
+  await timers.fire(safety.id);
+  await B.settle();
+  assert.ok(fake.calls.select > before2, '2분 타이머도 실제로 gapFill을 돈다');
+
+  // 끊기면 안전망은 거두고, 재연결·폴링 쪽 타이머만 남는다.
+  fake.drop();
+  assert.equal(B.connection, 'offline');
+  assert.equal(timers.pending().filter((x) => x.ms === 2000 || x.ms === 120000).length, 0, '끊기면 안전망을 거둔다');
+
+  B.stop();
+  assert.deepEqual(timers.pending(), [], 'stop()이 남은 타이머를 모두 거둔다');
 });
 
 test('⑳ 파일 주소의 uuid는 정규형만 받는다(대문자·자리수 어긋남 거절)', async (t) => {

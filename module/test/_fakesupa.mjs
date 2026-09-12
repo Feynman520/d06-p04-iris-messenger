@@ -1,6 +1,6 @@
 // IRIS Messenger · © 2026 Sejun Ham (함세준) · MIT · https://feynman520.github.io/card/#home
 // 시험용 가짜 허브(메모리): messages 표(client_id UNIQUE) · mark_delivered · Storage · 도어벨
-// + 로그인(OTP)·profiles·contacts·meta·초대 rpc(Task 9의 App 시험용).
+// + 로그인(OTP)·profiles·contacts·meta·초대 rpc(App 시험용).
 // 실제 Supa와 같은 메서드 이름·같은 SupaError를 던진다. 네트워크·파일은 쓰지 않는다.
 import crypto from 'node:crypto';
 import { SupaError } from '../../hub/client/supa.mjs';

@@ -26,15 +26,20 @@ test('① 한 파일 안에 다 있고 크기가 200KB보다 작다', () => {
   assert.equal(count(HTML, '<style'), 1, '스타일도 인라인 한 덩어리');
 });
 
-test('② 바깥으로 나가는 링크가 하나도 없다(오프라인에서도 그대로 뜬다)', () => {
-  for (const bad of ['src="http', "src='http", 'href="http', "href='http", 'url(http', 'url("http', "url('http", '@import', '//cdn', 'fonts.googleapis']) {
+test('② 바깥에서 불러오는 자원이 하나도 없다(오프라인에서도 그대로 뜬다)', () => {
+  for (const bad of ['src="http', "src='http", 'url(http', 'url("http', "url('http", '@import', '//cdn', 'fonts.googleapis']) {
     assert.equal(HTML.includes(bad), false, `바깥 자원: ${bad}`);
   }
   assert.equal(/<link\b/i.test(HTML), false, '<link> 자체를 쓰지 않는다');
-  // 남아 있는 http(s)는 머리말 저작권 줄과 사용자가 넣는 자리표시자(placeholder)뿐이다.
+  // 남아 있는 http(s)는 머리말 저작권 줄, 자리표시자(placeholder), 그리고 사람이 눌러서 여는
+  // 처리방침 링크뿐이다(불러오는 자원이 아니라 이동하는 주소 — 오프라인에서도 화면은 그대로 뜬다).
   const urls = HTML.match(/https?:\/\/[^\s"'<>)]+/g) || [];
   for (const u of urls) {
-    assert.ok(/feynman520\.github\.io|xxxx\.supabase\.co|127\.0\.0\.1/.test(u), `예상 밖 주소: ${u}`);
+    assert.ok(/feynman520\.github\.io|xxxx\.supabase\.co|127\.0\.0\.1|github\.com\/Feynman520\/d06-p04-iris-messenger/.test(u), `예상 밖 주소: ${u}`);
+  }
+  // 바깥으로 나가는 링크는 새 탭 + rel="noopener" 로만 연다.
+  for (const m of HTML.match(/<a [^>]*href="https?:[^>]*>/g) || []) {
+    assert.ok(m.includes('target="_blank"') && m.includes('rel="noopener"'), `안전하지 않은 링크: ${m}`);
   }
 });
 
@@ -63,7 +68,7 @@ test('⑤ 단계·본 화면의 필수 id가 모두 있다', () => {
     'contacts', 'chat', 'composer', 'settings-dialog', 'words-dialog',
     'invite-dialog', 'accept-dialog', 'confirm-dialog',
     'conn-dot', 'peerbar', 'file-input', 'count',
-    'set-name', 'set-rename',
+    'set-name', 'set-rename', 'idn-missing', 'idn-register',
   ];
   for (const id of ids) assert.ok(HTML.includes(`id="${id}"`), `id="${id}" 가 없다`);
   assert.equal(count(HTML, '<dialog id='), 5, '대화상자는 <dialog> 5개');
@@ -93,6 +98,9 @@ test('⑧ 신뢰·안전 문구가 빠지지 않았다', () => {
   assert.ok(HTML.includes('이 코드를 상대에게 직접(카톡·말) 전하세요. 뒤 4자는 내 열쇠 지문입니다.'));
   assert.ok(HTML.includes('코드의 뒤 4자와 상대의 지문이 맞는지 확인합니다.'));
   assert.ok(HTML.includes('이 PC의 열쇠가 계정의 열쇠와 다릅니다'));
+  assert.ok(HTML.includes('서버에 프로필이 없습니다. 이 PC의 열쇠를 등록하거나 12단어로 복원하세요'));
+  assert.ok(HTML.includes('이 열쇠는 서버에서 받아 그대로 고정한 것입니다. 지문을 상대에게 직접 확인한 뒤 아래 단추를 누르세요.'));
+  assert.ok(HTML.includes('지문 재확인 필요'), '아직 대조하지 않은 열쇠의 표식');
   assert.ok(HTML.includes('다시 보내려면 파일을 다시 첨부해 보내세요'));
   // 상한 숫자는 박아 두지 않고 state().limits.fileMax 에서 만들어 쓴다.
   assert.ok(JS.includes("'파일이 너무 큽니다(' + Math.round(fileMax() / 1048576) + 'MB)'"));

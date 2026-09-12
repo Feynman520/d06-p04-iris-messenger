@@ -67,6 +67,7 @@ html[data-mode="light"] textarea{background:var(--sur)}
 input:focus,textarea:focus{border-color:var(--accent);outline:none}
 textarea{resize:vertical}
 .hint{color:var(--mut);font-size:13px;margin:6px 0 0}
+a{color:var(--accent)}
 .err{color:var(--bad);font-size:13px;margin:8px 0 0;min-height:1.2em}
 .check{display:flex;gap:10px;align-items:flex-start;margin:2px 0 14px;color:var(--mut);cursor:pointer}
 .check input{
@@ -267,6 +268,7 @@ dialog .foot{display:flex;gap:8px;justify-content:flex-end;padding:0 18px 18px}
       <input id="out-agree" type="checkbox">
       <span>만 14세 이상이며 처리방침을 읽었습니다</span>
     </label>
+    <p class="hint" style="margin:-8px 0 14px">처리방침 전문: <a href="https://github.com/Feynman520/d06-p04-iris-messenger/blob/main/hub/server/처리방침.md" target="_blank" rel="noopener">hub/server/처리방침.md</a></p>
     <button id="out-send" class="btn primary wide" type="button" disabled>코드 받기</button>
     <p class="err" id="out-err" role="alert"></p>
   </div>
@@ -304,6 +306,9 @@ dialog .foot{display:flex;gap:8px;justify-content:flex-end;padding:0 18px 18px}
         <button id="idn-mm-reset" class="btn sm danger" type="button">열쇠 재설정</button>
       </div>
     </div>
+    <div id="idn-missing" hidden style="border:1px solid var(--warn);border-radius:10px;padding:11px 13px;margin-bottom:16px">
+      <p style="margin:0;color:var(--warn);font-size:13px">서버에 프로필이 없습니다. 이 PC의 열쇠를 등록하거나 12단어로 복원하세요</p>
+    </div>
     <div id="idn-normal">
       <h1>이 PC의 열쇠를 만듭니다</h1>
       <p class="lead">열쇠는 이 PC 밖으로 나가지 않습니다. 서버는 잠긴 글만 옮깁니다.</p>
@@ -315,6 +320,7 @@ dialog .foot{display:flex;gap:8px;justify-content:flex-end;padding:0 18px 18px}
       <textarea id="idn-words" rows="3" spellcheck="false" placeholder="able absent …"></textarea>
     </div>
     <div class="split" style="margin-top:16px">
+      <button id="idn-register" class="btn primary" type="button" hidden>이 PC의 열쇠로 등록</button>
       <button id="idn-create" class="btn primary" type="button">새 열쇠 만들기</button>
       <button id="idn-restore" class="btn" type="button">12단어로 복원</button>
     </div>
@@ -436,7 +442,7 @@ dialog .foot{display:flex;gap:8px;justify-content:flex-end;padding:0 18px 18px}
     <div class="sec">
       <h3>이 모듈</h3>
       <div class="fact"><b>판번호</b><span id="set-version">—</span></div>
-      <div class="fact"><b>처리방침</b><span>hub/server/처리방침.md</span></div>
+      <div class="fact"><b>처리방침</b><span><a href="https://github.com/Feynman520/d06-p04-iris-messenger/blob/main/hub/server/처리방침.md" target="_blank" rel="noopener">hub/server/처리방침.md</a></span></div>
       <p class="err" id="set-err" role="alert"></p>
     </div>
   </div>
@@ -610,6 +616,9 @@ function render() {
   $('idn-normal').hidden = !!S.keyMismatch;
   $('idn-create').hidden = !!S.keyMismatch;
   if (S.keyMismatch) $('idn-words-wrap').hidden = false;
+  // 서버에만 프로필이 없는 경우: 이 PC의 열쇠를 그대로 올리는 길을 하나 더 보여 준다(열쇠는 그대로다).
+  $('idn-missing').hidden = !S.profileMissing;
+  $('idn-register').hidden = !S.profileMissing;
   if (stage === 'out') say('out-hub', (S.hub && S.hub.url) || '아직 없음');
   if (stage === 'code') say('code-email', S.email || '메일 주소');
   if (stage !== 'in') return;
@@ -665,7 +674,8 @@ function renderContacts() {
     var sub = h('div', { class: 'sub' },
       h('span', { class: 'fp', text: c.fingerprint ? c.fingerprint.slice(0, 4) : '····' }),
       STATUS_LABEL[c.status] ? h('span', { class: 'tag' + (c.status === 'pending_in' ? ' warn' : ''), text: STATUS_LABEL[c.status] }) : null,
-      c.keyChanged ? h('span', { class: 'tag bad', text: '⚠ 열쇠 바뀜' }) : null
+      c.keyChanged ? h('span', { class: 'tag bad', text: '⚠ 열쇠 바뀜' }) : null,
+      (!c.keyChanged && c.needsVerify) ? h('span', { class: 'tag warn', text: '지문 재확인 필요' }) : null
     );
     var btn = h('button', {
       class: 'contact', type: 'button', 'aria-current': peer === c.id ? 'true' : 'false',
@@ -690,6 +700,7 @@ function renderPeerbar() {
     h('span', { class: 'fp-big' }, document.createTextNode(fp.slice(0, 4)), h('b', { text: fp.slice(4) })),
     h('p', { class: 'verify', text: '상대와 직접 대조하세요. 이름은 흉내 낼 수 있지만 지문은 못 합니다.' }),
     c.keyChanged ? h('p', { class: 'verify', style: 'color:var(--bad)', text: '상대의 열쇠가 바뀌었습니다. 새 지문을 상대에게 직접 확인한 뒤에만 받아들이세요.' }) : null,
+    (!c.keyChanged && c.needsVerify) ? h('p', { class: 'verify', style: 'color:var(--warn)', text: '이 열쇠는 서버에서 받아 그대로 고정한 것입니다. 지문을 상대에게 직접 확인한 뒤 아래 단추를 누르세요.' }) : null,
     c.status === 'pending_out' ? h('p', { class: 'verify', text: '상대 수락 대기 중입니다.' }) : null,
     c.status === 'blocked_me' ? h('p', { class: 'verify', text: '상대가 나를 차단했습니다.' }) : null
   );
@@ -700,7 +711,7 @@ function renderPeerbar() {
       onclick: function () { contactAction(c.id, action, label); }
     }, label));
   };
-  if (c.keyChanged) add('새 지문 확인', 'trust-key', 'danger');
+  if (c.keyChanged || c.needsVerify) add('새 지문 확인', 'trust-key', 'danger');
   if (c.status === 'pending_in') { add('수락', 'accept'); add('거절', 'reject', 'danger'); }
   else if (c.status === 'accepted') { add('차단', 'block', 'danger'); add('삭제', 'remove', 'danger'); }
   else if (c.status === 'blocked_by_me') { add('차단 풀기', 'unblock'); add('삭제', 'remove', 'danger'); }
@@ -1013,6 +1024,18 @@ $('idn-create').addEventListener('click', async function () {
     scheduleRefresh();
   } catch (e) { say('idn-err', human(e)); }
   $('idn-create').disabled = false;
+});
+
+$('idn-register').addEventListener('click', async function () {
+  say('idn-err', '');
+  var name = $('idn-name').value.trim() || (S && S.displayName) || '';
+  if (!name) { say('idn-err', '상대에게 보일 이름을 적어 주세요.'); return; }
+  $('idn-register').disabled = true;
+  try {
+    await api('/api/identity/register', { json: { displayName: name } });
+    scheduleRefresh();
+  } catch (e) { say('idn-err', human(e)); }
+  $('idn-register').disabled = false;
 });
 
 $('idn-restore').addEventListener('click', async function () {
