@@ -1,5 +1,6 @@
 // IRIS Messenger · © 2026 Sejun Ham (함세준) · MIT · https://feynman520.github.io/card/#home
-// 시험용 가짜 허브(메모리): messages 표(client_id UNIQUE) · mark_delivered · Storage · 도어벨.
+// 시험용 가짜 허브(메모리): messages 표(client_id UNIQUE) · mark_delivered · Storage · 도어벨
+// + 로그인(OTP)·profiles·contacts·meta·초대 rpc(Task 9의 App 시험용).
 // 실제 Supa와 같은 메서드 이름·같은 SupaError를 던진다. 네트워크·파일은 쓰지 않는다.
 import crypto from 'node:crypto';
 import { SupaError } from '../../hub/client/supa.mjs';
@@ -14,15 +15,42 @@ function matchesFilter(filter, row) {
   return String(row[m[1]] ?? '') === m[2];
 }
 
+// PostgREST 질의 문자열에서 `필드=eq.값` 하나를 꺼낸다.
+function eqOf(query, field) {
+  const v = new URLSearchParams(query).get(field);
+  return v && v.startsWith('eq.') ? v.slice(3) : null;
+}
+
+// `id=in.(a,b)` → ['a','b']
+function inOf(query, field) {
+  const v = new URLSearchParams(query).get(field);
+  if (!v || !v.startsWith('in.(')) return null;
+  return v.slice(4, -1).split(',').filter(Boolean);
+}
+
+// select=a,b,c 가 있으면 그 열만 남긴다(PostgREST 흉내).
+function project(rows, query) {
+  const sel = new URLSearchParams(query).get('select');
+  if (!sel || sel === '*') return rows.map((r) => ({ ...r }));
+  const fields = sel.split(',');
+  return rows.map((r) => { const o = {}; for (const f of fields) o[f] = r[f]; return o; });
+}
+
 export class FakeSupa {
   rows = [];             // messages 표
+  profiles = [];         // profiles 표: { id, display_name, public_key, key_version }
+  contactRows = [];      // contacts 표: { user_a, user_b, status, requested_by, blocked_by }
+  meta = [{ key: 'schema_version', value: '1' }];
+  invites = new Map();   // code8 → owner_id
   storage = new Map();   // `${bucket}/${objPath}` → Buffer
   subs = new Set();      // 살아 있는 구독
   wsMode = 'ok';         // 'ok' | 'error' — 'error'면 subscribe가 즉시 onStatus('error')
-  calls = { select: 0, insert: 0, rpc: 0, upload: 0, download: 0, subscribe: 0 };
+  calls = { select: 0, insert: 0, update: 0, rpc: 0, upload: 0, download: 0, subscribe: 0, otp: 0 };
   #seq = 0;
   #fails = 0;
   #failAfterWrite = false;
+  #session = null;
+  #listeners = [];
 
   // 다음 n회 요청을 네트워크 오류로 만든다. afterWrite면 "쓰기는 됐는데 응답만 잃은" 상황(V7).
   failNext(n = 1, { afterWrite = false } = {}) {
@@ -39,9 +67,66 @@ export class FakeSupa {
     throw new SupaError('network: fake offline', { status: 0, code: 'network' });
   }
 
+  // ---- 로그인(GoTrue 흉내) ----
+
+  get session() { return this.#session; }
+
+  setSession(s) {
+    this.#session = s ? { ...s } : null;
+    for (const fn of this.#listeners) { try { fn(this.#session); } catch { /* 청취자 오류는 서버 몫이 아니다 */ } }
+  }
+
+  onSession(fn) {
+    this.#listeners.push(fn);
+    return () => { this.#listeners = this.#listeners.filter((x) => x !== fn); };
+  }
+
+  async ensureFresh() { /* 가짜 토큰은 만료되지 않는다 */ }
+
+  async otpRequest(email) {
+    this.calls.otp += 1;
+    this.#gate('before');
+    this.lastOtpEmail = email;
+    return {};
+  }
+
+  // 6자리 '123456' 또는 token_hash=hash-ok 매직링크만 통과한다.
+  async otpVerify(email, token) {
+    const raw = String(token).trim();
+    let ok = raw === '123456';
+    if (/^https?:\/\//i.test(raw)) {
+      try { ok = new URL(raw).searchParams.get('token_hash') === 'hash-ok'; } catch { ok = false; }
+    }
+    if (!ok) throw new SupaError('Token has expired or is invalid', { status: 400, code: 'otp_expired' });
+    const s = { access_token: 'at1', refresh_token: 'rt1', expires_at: Math.floor(Date.now() / 1000) + 3600, user: { id: this.userId || 'u1', email } };
+    this.setSession(s);
+    return s;
+  }
+
+  async logout() { this.setSession(null); }
+
+  #me() { return this.#session?.user?.id ?? null; }
+
   async select(table, query = '') {
     this.calls.select += 1;
     this.#gate('before');
+    if (table === 'meta') {
+      const key = eqOf(query, 'key');
+      const out = this.meta.filter((r) => !key || r.key === key);
+      this.#gate('after');
+      return project(out, query);
+    }
+    if (table === 'profiles') {
+      const one = eqOf(query, 'id');
+      const many = inOf(query, 'id');
+      const out = this.profiles.filter((p) => (one ? p.id === one : many ? many.includes(p.id) : true));
+      this.#gate('after');
+      return project(out, query);
+    }
+    if (table === 'contacts') {
+      this.#gate('after');
+      return project(this.contactRows, query);
+    }
     if (table !== 'messages') throw new SupaError(`fake: unknown table ${table}`, { status: 404 });
     const q = new URLSearchParams(query);
     let out = [...this.rows];
@@ -61,6 +146,13 @@ export class FakeSupa {
   async insert(table, row, { returning = 'representation' } = {}) {
     this.calls.insert += 1;
     this.#gate('before');
+    if (table === 'profiles') {
+      if (this.profiles.some((p) => p.id === row.id)) throw new SupaError('duplicate key value', { status: 409, code: '23505' });
+      const stored = { ...row };
+      this.profiles.push(stored);
+      this.#gate('after');
+      return returning === 'minimal' ? null : { ...stored };
+    }
     if (table !== 'messages') throw new SupaError(`fake: unknown table ${table}`, { status: 404 });
     const stored = this.insertRow(row);
     this.#gate('after');
@@ -81,9 +173,51 @@ export class FakeSupa {
     return stored;
   }
 
+  async update(table, query, patch) {
+    this.calls.update += 1;
+    this.#gate('before');
+    if (table !== 'profiles') throw new SupaError(`fake: unknown table ${table}`, { status: 404 });
+    const id = eqOf(query, 'id');
+    const out = [];
+    for (const p of this.profiles) if (p.id === id) { Object.assign(p, patch); out.push({ ...p }); }
+    this.#gate('after');
+    return out;
+  }
+
   async rpc(fn, args = {}) {
     this.calls.rpc += 1;
     this.#gate('before');
+    if (fn === 'delete_me') {
+      const me = this.#me();
+      this.profiles = this.profiles.filter((p) => p.id !== me);
+      this.contactRows = this.contactRows.filter((r) => r.user_a !== me && r.user_b !== me);
+      this.#gate('after');
+      return {};
+    }
+    if (fn === 'create_invite') {
+      const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+      let code = '';
+      for (let i = 0; i < 8; i += 1) code += alphabet[crypto.randomInt(alphabet.length)];
+      this.invites.set(code, this.#me());
+      this.#gate('after');
+      return code;
+    }
+    if (fn === 'respond_contact') {
+      const me = this.#me();
+      const other = args.p_other;
+      const [a, b] = me < other ? [me, other] : [other, me];
+      const idx = this.contactRows.findIndex((r) => r.user_a === a && r.user_b === b);
+      if (idx < 0) throw new SupaError('no such contact', { status: 400 });
+      const row = this.contactRows[idx];
+      let result = 'accepted';
+      if (args.p_action === 'accept') row.status = 'accepted';
+      else if (args.p_action === 'reject' || args.p_action === 'remove') { this.contactRows.splice(idx, 1); result = 'deleted'; }
+      else if (args.p_action === 'block') { row.status = 'blocked'; row.blocked_by = me; result = 'blocked'; }
+      else if (args.p_action === 'unblock') { row.status = 'accepted'; row.blocked_by = null; }
+      else throw new SupaError('unknown action', { status: 400 });
+      this.#gate('after');
+      return result;
+    }
     if (fn !== 'mark_delivered') throw new SupaError(`fake: unknown rpc ${fn}`, { status: 404 });
     const ids = new Set(args.p_ids || []);
     let n = 0;

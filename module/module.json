@@ -1,0 +1,11 @@
+{
+  "name": "messenger",
+  "label": "메신저",
+  "icon": "💬",
+  "version": "0.1.0",
+  "contract": 1,
+  "grade": 0,
+  "minFace": "2.47.0",
+  "entry": "index.mjs",
+  "hub": { "min": 1, "max": 1 }
+}
