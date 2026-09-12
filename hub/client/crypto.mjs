@@ -33,6 +33,7 @@ export function sealFile(data) {
 }
 export function openFile(sealed, key) {
   try {
+    if (!Buffer.isBuffer(sealed) || sealed.length < 12 + 16) throw new Error('cannot open file'); // 논스+태그 자리도 없는 입력(open()과 같은 최소 길이 가드)
     const k = b64.dec(key); const nonce = sealed.subarray(0, 12), tag = sealed.subarray(sealed.length - 16), ct = sealed.subarray(12, sealed.length - 16);
     const d = crypto.createDecipheriv('aes-256-gcm', k, nonce); d.setAuthTag(tag);
     return Buffer.concat([d.update(ct), d.final()]);

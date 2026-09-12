@@ -73,6 +73,14 @@ test('⑥ sealFile/openFile round-trip 1MB random data; wrong key throws', () =>
   assert.throws(() => openFile(sealed, otherKey), /cannot open file/);
 });
 
+test('⑥-b openFile rejects a too-short blob without warning (min length guard)', () => {
+  const { key } = sealFile(Buffer.from('x'));
+  // 12바이트(논스 길이)만 있는 입력: 태그를 잘라낼 자리가 없다 → 짧은 GCM 태그 경고(DEP0182) 없이 거절해야 한다.
+  assert.throws(() => openFile(Buffer.alloc(12), key), /cannot open file/);
+  assert.throws(() => openFile(Buffer.alloc(0), key), /cannot open file/);
+  assert.throws(() => openFile('not a buffer', key), /cannot open file/);
+});
+
 test('⑦ blob length for a 4,000-character Korean text stays under 40,000 (server body cap)', () => {
   const A = makeParty();
   const B = makeParty();
