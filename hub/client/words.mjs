@@ -1,4 +1,4 @@
-// IRIS Messenger · © 2026 Sejun Ham · MIT · https://feynman520.github.io/card/#home
+// IRIS Messenger · © 2026 Sejun Ham (함세준) · MIT · https://feynman520.github.io/card/#home
 // BIP39 English wordlist (2048 words), source bitcoin/bips bip-0039/english.txt, sha256 2f5eed53a4727b4bf8880d8f3f199efc90e58503646d9ff8eff3a2ed3b24dbda
 export const WORDS = [
 'abandon',
