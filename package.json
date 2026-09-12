@@ -8,7 +8,7 @@
   "type": "module",
   "engines": { "node": ">=22" },
   "scripts": {
-    "test": "node --test hub/client/test module/test",
+    "test": "node --test \"hub/client/test/*.test.mjs\" \"module/test/*.test.mjs\"",
     "deploy:hub": "node hub/server/deploy.mjs",
     "verify:rls": "node scripts/verify-rls.mjs",
     "verify:e2e": "node scripts/e2e-live.mjs",
