@@ -41,10 +41,11 @@ app.on((ev) => {
     if (ev.type !== 'message') return;
     const item = ev.item;
     if (!item || item.dir !== 'in' || item.status === 'failed') return;
-    if (app.state().notifyMuted) return;
+    if (app.notifyMuted) return; // 설정만 본다 — 편지 한 통마다 state()를 통째로 만들지 않는다
     const peer = String(ev.peer ?? '');
     const now = Date.now();
     if (now - (lastNotify.get(peer) || 0) < NOTIFY_GAP) return;
+    for (const [id, at] of lastNotify) if (now - at >= NOTIFY_GAP) lastNotify.delete(id); // 오래된 자국은 버린다
     lastNotify.set(peer, now);
     const name = app.contacts?.get(peer)?.displayName || '연락처';
     out({ t: 'notify', title: String(name).slice(0, 80), sub: '새 메시지', target: peer.slice(0, 120) });
@@ -63,7 +64,7 @@ async function onHello(m) {
   } catch (e) {
     logErr(`init: ${e.stack || e.message}`); // 초기화에 실패해도 화면은 띄워 사용자가 까닭을 본다
   }
-  server = http.createServer(createHandler({ app, token, panelHtml, out }));
+  server = http.createServer(createHandler({ app, token, panelHtml, out, log: logErr }));
   server.on('clientError', (err, socket) => { logErr(`client: ${err.message}`); try { socket.destroy(); } catch { /* noop */ } });
   server.on('error', (err) => logErr(`server: ${err.message}`));
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));

@@ -6,6 +6,9 @@ import { FILE_MAX } from './messages.mjs';
 
 const JSON_MAX = 1024 * 1024; // 본문 1MB 상한
 const CONTACT_ACTIONS = new Set(['accept', 'reject', 'block', 'unblock', 'remove', 'trust-key']);
+const PEER_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i; // 허브의 사용자 번호 = uuid
+// 우리 잘못(코드 결함)과 사용자에게 보여 줄 말(잘못된 코드·잠김 등)을 가른다.
+const BUG_TYPES = [TypeError, RangeError, ReferenceError, SyntaxError];
 
 function sendJson(res, status, obj) {
   const body = Buffer.from(JSON.stringify(obj ?? null), 'utf8');
@@ -21,10 +24,14 @@ function badRequest(msg) {
   return Object.assign(new Error(msg), { httpStatus: 400 });
 }
 
-// 같은 길이·같은 값일 때만 통과(비교 시간으로 토큰을 더듬는 것을 막는다).
+// 같은 바이트 수·같은 값일 때만 통과(비교 시간으로 토큰을 더듬는 것을 막는다).
+// 글자 수가 아니라 **바이트 수**로 재야 한다 — 한글처럼 여러 바이트인 글자가 오면
+// timingSafeEqual이 RangeError를 던지기 때문이다.
 function sameToken(given, token) {
-  if (typeof given !== 'string' || given.length !== token.length) return false;
-  return crypto.timingSafeEqual(Buffer.from(given), Buffer.from(token));
+  const a = Buffer.from(String(given ?? ''), 'utf8');
+  const b = Buffer.from(String(token ?? ''), 'utf8');
+  if (a.length !== b.length || a.length === 0) return false;
+  return crypto.timingSafeEqual(a, b);
 }
 
 // 상한을 넘으면 남은 바이트는 버리며 끝까지 받아 준다(연결을 끊지 않아야 상대가 413을 읽는다).
@@ -55,8 +62,21 @@ async function readJsonBody(req) {
   }
 }
 
-export function createHandler({ app, token, panelHtml = '', out = () => {} }) {
+const defaultLog = (m) => { try { process.stderr.write(`[messenger] ${m}\n`); } catch { /* noop */ } };
+
+export function createHandler({ app, token, panelHtml = '', out = () => {}, log = defaultLog }) {
   const need = (thing) => { if (!thing) throw badRequest('hub not configured'); return thing; };
+
+  // 오류 → 응답. 사용자에게 뜻이 있는 말(SupaError·우리가 던진 Error)은 그대로 400으로 보여 주고,
+  // 코드 결함(TypeError 등)은 속내를 감춘 500으로 돌려주되 까닭은 stderr에 남긴다.
+  function fail(req, res, e) {
+    const bug = BUG_TYPES.some((T) => e instanceof T);
+    if (bug) log(`internal: ${e?.stack || e}`);
+    const status = e?.httpStatus || (bug ? 500 : (Number(e?.status) >= 500 ? 500 : 400));
+    try { req.resume(); } catch { /* 이미 끝난 요청 */ }
+    if (res.headersSent) { try { res.end(); } catch { /* 이미 끝난 응답 */ } return; }
+    sendJson(res, status, { error: bug ? 'internal error' : (e?.message || String(e)) });
+  }
 
   async function route(req, res, u) {
     const p = u.pathname.replace(/\/+$/, '') || '/';
@@ -65,7 +85,12 @@ export function createHandler({ app, token, panelHtml = '', out = () => {} }) {
 
     if (method === 'GET' && p === '/') {
       const body = Buffer.from(panelHtml, 'utf8');
-      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Content-Length': body.length, 'Cache-Control': 'no-store' });
+      res.writeHead(200, {
+        'Content-Type': 'text/html; charset=utf-8',
+        'Content-Length': body.length,
+        'Cache-Control': 'no-store',
+        'Referrer-Policy': 'no-referrer', // 주소에 든 토큰이 바깥으로 새지 않게
+      });
       return res.end(body);
     }
 
@@ -113,11 +138,14 @@ export function createHandler({ app, token, panelHtml = '', out = () => {} }) {
       return sendJson(res, 200, { item: await need(app.messages).sendText(peer, text) });
     }
     if (method === 'POST' && p === '/api/send-file') {
+      // 상대를 먼저 본다 — 10MB를 다 받은 뒤에 "상대가 없다"고 하지 않도록.
       const peer = u.searchParams.get('peer');
-      const name = u.searchParams.get('name') || 'file';
-      const data = await readBody(req, FILE_MAX); // 상한을 넘으면 413
       if (!peer) throw badRequest('peer required');
-      return sendJson(res, 200, { item: await need(app.messages).sendFile(peer, { name, data }) });
+      if (!PEER_RE.test(peer)) throw badRequest('bad peer id');
+      const name = u.searchParams.get('name') || 'file';
+      need(app.messages);
+      const data = await readBody(req, FILE_MAX); // 상한을 넘으면 413
+      return sendJson(res, 200, { item: await app.messages.sendFile(peer, { name, data }) });
     }
     if (method === 'POST' && p === '/api/read') {
       const { peer } = await readJsonBody(req);
@@ -189,18 +217,21 @@ export function createHandler({ app, token, panelHtml = '', out = () => {} }) {
     res.on('close', finish);
   }
 
+  // 주소 풀이·토큰 검사·길 처리를 한 울타리 안에 둔다 — 무엇이 터지든 응답 하나로 끝나고,
+  // 잡히지 않은 예외로 연결이 매달리는 일이 없다.
   return function handler(req, res) {
-    let u;
-    try { u = new URL(req.url, 'http://127.0.0.1'); } catch { return sendJson(res, 400, { error: 'bad url' }); }
-    const given = u.searchParams.get('t') ?? (typeof req.headers['x-token'] === 'string' ? req.headers['x-token'] : null);
-    if (!sameToken(given, token)) {
-      req.resume(); // 본문을 흘려보내야 상대가 응답을 읽는다
-      return sendJson(res, 403, { error: 'forbidden' });
-    }
-    route(req, res, u).catch((e) => {
-      const status = e?.httpStatus || (Number(e?.status) >= 500 ? 500 : 400);
-      if (res.headersSent) { try { res.end(); } catch { /* 이미 끝난 응답 */ } return; }
-      sendJson(res, status, { error: e?.message || String(e) });
-    });
+    Promise.resolve()
+      .then(() => {
+        let u;
+        try { u = new URL(req.url, 'http://127.0.0.1'); } catch { throw badRequest('bad url'); }
+        const header = req.headers['x-token'];
+        const given = u.searchParams.get('t') ?? (typeof header === 'string' ? header : null);
+        if (!sameToken(given, token)) {
+          req.resume(); // 본문을 흘려보내야 상대가 응답을 읽는다
+          return sendJson(res, 403, { error: 'forbidden' });
+        }
+        return route(req, res, u);
+      })
+      .catch((e) => fail(req, res, e));
   };
 }

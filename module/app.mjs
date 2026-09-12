@@ -32,6 +32,7 @@ export class App {
     this.hubConf = null;
     this.hubCustom = false;
     this.hubMismatch = null;
+    this.keyMismatch = false; // 서버가 아는 내 공개키 ≠ 이 컴퓨터의 열쇠
     this.displayName = null;
     this.theme = null;
     this.lang = 'ko';
@@ -51,6 +52,7 @@ export class App {
     this.messages?.stop();
     this.stateDir = stateDir;
     this.hubMismatch = null;
+    this.keyMismatch = false;
     this.#pendingEmail = null;
 
     const mod = (await readJson(path.join(HERE, 'module.json'), {})) || {};
@@ -115,16 +117,21 @@ export class App {
     } catch (e) {
       this.log(`contacts.sync: ${e.message}`); // 고정(pin)된 연락처는 그대로 두고 오프라인으로 시작한다
     }
-    try { // 서버의 이름이 정본 — 다른 기기에서 바꿨거나 다른 계정으로 갈아탄 경우를 맞춘다
-      const name = (await this.identity.fetchProfile())?.display_name || null;
-      if (name && name !== this.displayName) {
+    try {
+      const profile = await this.identity.fetchProfile();
+      // 서버가 아는 내 공개키와 이 컴퓨터의 열쇠가 다르면(다른 기기에서 열쇠를 재설정한 경우 등)
+      // 그 열쇠로는 아무 편지도 열 수 없다 — 연결하지 않고 신원 화면으로 되돌린다.
+      this.keyMismatch = !!(profile?.public_key && profile.public_key !== b64.enc(this.identity.publicRaw));
+      // 서버의 이름이 정본 — 다른 기기에서 바꿨거나 다른 계정으로 갈아탄 경우를 맞춘다.
+      const name = profile?.display_name || null;
+      if (!this.keyMismatch && name && name !== this.displayName) {
         this.displayName = name;
         await this.#saveSettings({ displayName: name });
       }
     } catch (e) {
-      this.log(`profile: ${e.message}`); // 오프라인이면 마지막으로 알던 이름을 그대로 쓴다
+      this.log(`profile: ${e.message}`); // 오프라인이면 마지막으로 알던 이름·판정을 그대로 쓴다
     }
-    if (this.hubMismatch) return; // 맞지 않는 허브에는 연결하지 않는다
+    if (this.hubMismatch || this.keyMismatch) return; // 맞지 않는 허브·열쇠에는 연결하지 않는다
     this.messages.start();
   }
 
@@ -144,10 +151,12 @@ export class App {
     return this.hubMismatch;
   }
 
+  get notifyMuted() { return !!this.settings.notifyMuted; }
+
   stage() {
     if (!this.hubConf || !this.supa) return 'nohub';
     if (!this.session?.user) return this.#pendingEmail ? 'code' : 'out';
-    if (!this.identity?.publicRaw) return 'identity';
+    if (!this.identity?.publicRaw || this.keyMismatch) return 'identity';
     return 'in';
   }
 
@@ -162,6 +171,7 @@ export class App {
       fingerprint: this.identity?.fingerprint ?? null,
       hub: { url: this.hubConf?.url ?? null, custom: this.hubCustom },
       hubMismatch: this.hubMismatch ?? null,
+      keyMismatch: !!this.keyMismatch,
       connection: this.messages?.connection ?? 'stopped',
       unread: this.messages?.unread() ?? { total: 0, byPeer: {} },
       contacts: this.contacts?.list() ?? [],
@@ -234,6 +244,7 @@ export class App {
     await this.session.logout();
     this.#pendingEmail = null;
     this.hubMismatch = null;
+    this.keyMismatch = false;
     this.#emitState();
     return { stage: this.stage() };
   }
@@ -270,6 +281,7 @@ export class App {
       created = await this.identity.create(name);
       this.displayName = name;
     }
+    this.keyMismatch = false; // 복원·새로 만들기가 끝났으면 서버와 다시 맞다
     await this.#saveSettings({ displayName: this.displayName });
     await this.#goLive();
     this.#emitState();
@@ -294,6 +306,7 @@ export class App {
     if (!name) throw new Error('display name required');
     const words = await this.identity.reset(name);
     this.displayName = name;
+    this.keyMismatch = false; // 새 열쇠를 서버에 올린 뒤라 다시 맞다
     await this.#saveSettings({ displayName: name });
     await this.#goLive();
     this.#emitState();

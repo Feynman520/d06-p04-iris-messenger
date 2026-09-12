@@ -6,7 +6,9 @@ import http from 'node:http';
 import fssync from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import crypto from 'node:crypto';
 import { dpapiPlain } from '../../hub/client/dpapi.mjs';
+import { deriveKeyPair, mnemonicToEntropy, entropyToMnemonic, generateEntropy, b64 } from '../../hub/client/keys.mjs';
 import { FILE_MAX, TEXT_MAX } from '../messages.mjs';
 import { App } from '../app.mjs';
 import { createHandler } from '../api.mjs';
@@ -22,7 +24,8 @@ async function world(t) {
   const app = new App({ makeSupa: () => fake, dpapi: dpapiPlain, log: () => {} });
   await app.init({ stateDir: dir });
   const sent = [];
-  const server = http.createServer(createHandler({ app, token: TOKEN, panelHtml: PANEL, out: (o) => sent.push(o) }));
+  const logs = [];
+  const server = http.createServer(createHandler({ app, token: TOKEN, panelHtml: PANEL, out: (o) => sent.push(o), log: (m) => logs.push(m) }));
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
   const base = `http://127.0.0.1:${server.address().port}`;
 
@@ -42,7 +45,7 @@ async function world(t) {
   const json = async (p, o) => { const r = await api(p, o); return { status: r.status, body: await r.json() }; };
   const state = async () => (await json('/api/state')).body;
 
-  return { dir, fake, app, base, api, json, state, sent };
+  return { dir, fake, app, base, api, json, state, sent, logs };
 }
 
 // 로그인 + 신원까지 마쳐 stage 'in'으로 만든다.
@@ -62,6 +65,17 @@ test('① 토큰 없이 / 를 열면 403', async (t) => {
 
   // 쿼리 토큰(?t=)도 같은 값이어야 한다.
   assert.equal((await fetch(`${w.base}/?t=wrong`)).status, 403);
+
+  // 글자 수는 같지만 바이트 수가 다른 토큰(한글 16자)에도 터지지 않고 403을 준다.
+  // (헤더에는 한글을 실을 수 없으므로 주소의 ?t= 로만 온다.)
+  const wide = '가'.repeat(TOKEN.length);
+  assert.equal(wide.length, TOKEN.length);
+  assert.notEqual(Buffer.byteLength(wide, 'utf8'), Buffer.byteLength(TOKEN, 'utf8'));
+  assert.equal((await fetch(`${w.base}/?t=${encodeURIComponent(wide)}`)).status, 403);
+  assert.equal((await fetch(`${w.base}/api/state?t=${encodeURIComponent(wide)}`)).status, 403);
+  assert.equal((await fetch(`${w.base}/api/events?t=${encodeURIComponent(wide)}`)).status, 403);
+  // 그 뒤로도 서버는 멀쩡히 일한다.
+  assert.equal((await w.api('/api/state')).status, 200);
 });
 
 test('② 토큰이 맞으면 / 는 200 HTML(패널)', async (t) => {
@@ -69,6 +83,7 @@ test('② 토큰이 맞으면 / 는 200 HTML(패널)', async (t) => {
   const r = await w.api('/');
   assert.equal(r.status, 200);
   assert.match(r.headers.get('content-type'), /text\/html/);
+  assert.equal(r.headers.get('referrer-policy'), 'no-referrer', '주소에 든 토큰이 바깥으로 새지 않게');
   assert.equal(await r.text(), PANEL);
 
   // 쿼리 토큰으로도 열린다(Face 서랍이 여는 방식).
@@ -81,6 +96,7 @@ test('③ /api/state 는 로그인 전 stage "out" + 화면이 필요한 값을 
   const s = await w.state();
   assert.equal(s.stage, 'out');
   assert.equal(s.hubMismatch, null);
+  assert.equal(s.keyMismatch, false);
   assert.equal(s.connection, 'stopped');
   assert.deepEqual(s.unread, { total: 0, byPeer: {} });
   assert.deepEqual(s.contacts, []);
@@ -159,12 +175,21 @@ test('⑦ /api/events 첫 청크는 event: state', async (t) => {
   await reader.cancel().catch(() => {});
 });
 
-test('⑧ 10MB + 1바이트 업로드는 413', async (t) => {
+test('⑧ 10MB + 1바이트 업로드는 413, 상대가 없거나 엉터리면 본문을 읽기 전에 400', async (t) => {
   const w = await world(t);
+  const peer = crypto.randomUUID();
   const big = Buffer.alloc(FILE_MAX + 1, 0x41);
-  const r = await w.api('/api/send-file?peer=u2&name=big.bin', { method: 'POST', body: big, raw: true });
+  const r = await w.api(`/api/send-file?peer=${peer}&name=big.bin`, { method: 'POST', body: big, raw: true });
   assert.equal(r.status, 413);
   assert.match((await r.json()).error, /too large/);
+
+  const noPeer = await w.json('/api/send-file?name=x.txt', { method: 'POST', body: Buffer.from('짧은 파일'), raw: true });
+  assert.equal(noPeer.status, 400);
+  assert.match(noPeer.body.error, /peer required/);
+
+  const badPeer = await w.json('/api/send-file?peer=u2&name=x.txt', { method: 'POST', body: Buffer.from('짧은 파일'), raw: true });
+  assert.equal(badPeer.status, 400);
+  assert.match(badPeer.body.error, /bad peer id/);
 });
 
 test('⑨ 모르는 경로는 404 JSON', async (t) => {
@@ -233,4 +258,48 @@ test('⑭ 허브 스키마가 모듈보다 새로우면 hubMismatch = module_old
   assert.equal(s.stage, 'in');
   assert.equal(s.hubMismatch, 'module_old');
   assert.equal(s.connection, 'stopped', '맞지 않는 허브에는 연결하지 않는다');
+});
+
+test('⑮ 서버가 아는 열쇠가 내 열쇠와 다르면 stage "identity"로 잠그고, 12단어 복원으로 풀린다', async (t) => {
+  const w = await world(t);
+  await signIn(w);
+  assert.equal((await w.state()).stage, 'in');
+
+  // 다른 기기에서 열쇠를 재설정한 상황: 서버의 공개키가 다른 12단어에서 나온 값으로 바뀌었다.
+  const otherWords = entropyToMnemonic(generateEntropy());
+  const otherPublic = deriveKeyPair(mnemonicToEntropy(otherWords)).publicRaw;
+  w.fake.profiles[0].public_key = b64.enc(otherPublic);
+  w.fake.profiles[0].key_version = 2;
+
+  await w.app.init({ stateDir: w.dir }); // 모듈을 다시 시작한 셈
+  let s = await w.state();
+  assert.equal(s.stage, 'identity', '열지도 못할 열쇠로는 대화 화면에 들어가지 않는다');
+  assert.equal(s.keyMismatch, true);
+  assert.equal(s.connection, 'stopped', '어긋난 열쇠로는 연결하지 않는다');
+
+  // 맞는 12단어를 넣으면 풀린다(복원은 새 단어를 돌려주지 않는다).
+  const r = await w.json('/api/identity', { method: 'POST', body: { displayName: '나', words: otherWords } });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.words, undefined);
+  s = await w.state();
+  assert.equal(s.stage, 'in');
+  assert.equal(s.keyMismatch, false);
+});
+
+test('⑯ 코드 결함(TypeError)은 속내를 감춘 500, 사용자에게 뜻이 있는 오류는 그대로 400', async (t) => {
+  const w = await world(t);
+  const real = w.app.state.bind(w.app);
+  w.app.state = () => { throw new TypeError('boom'); };
+  const broken = await w.json('/api/state');
+  w.app.state = real;
+
+  assert.equal(broken.status, 500);
+  assert.equal(broken.body.error, 'internal error', '속사정은 화면에 보내지 않는다');
+  assert.match(w.logs.join('\n'), /boom/, '까닭은 stderr 로그에 남는다');
+
+  // 사용자에게 뜻이 있는 말은 그대로 보여 준다.
+  const plain = await w.json('/api/login/email', { method: 'POST', body: { email: '' } });
+  assert.equal(plain.status, 400);
+  assert.equal(plain.body.error, 'bad email');
+  assert.equal((await w.api('/api/state')).status, 200, '그 뒤로도 서버는 멀쩡하다');
 });
