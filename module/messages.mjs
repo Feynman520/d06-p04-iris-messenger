@@ -21,7 +21,7 @@ const safeName = (n) => String(n || 'file').replace(/[\\/:*?"<>|\x00-\x1f]/g, '_
 const safePeer = (p) => String(p || 'unknown').replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 80) || 'unknown';
 // 봉투 안의 파일 위치는 보낸 이가 쓴 값이다 — `<보낸 이 번호>/<uuid>` 한 모양만 받는다.
 // (Storage 정책상 남의 칸을 가리키는 주소를 우리가 대신 읽어 주는 일을 막는다.)
-const UUID_RE = /^[0-9a-f-]{36}$/;
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const okStoragePath = (owner, p) => typeof p === 'string' && !!owner && p.startsWith(`${owner}/`) && UUID_RE.test(p.slice(String(owner).length + 1));
 const SEAL_OVERHEAD = 12 + 16; // 논스 + GCM 태그
 
@@ -116,7 +116,8 @@ export class Messages {
 
   async #saveOutbox() { await writeJson(path.join(this.stateDir, 'outbox.json'), this.#outbox); }
 
-  history(peer, { limit = MAX_BATCH } = {}) { return this.#list(peer).slice(-limit); }
+  // 얕은 사본을 준다 — 화면·검사 쪽이 돌려받은 항목을 고쳐도 우리 기록은 그대로다.
+  history(peer, { limit = MAX_BATCH } = {}) { return this.#list(peer).slice(-limit).map((i) => ({ ...i })); }
 
   unread() {
     const byPeer = {};
@@ -131,8 +132,8 @@ export class Messages {
   async markRead(peer) {
     let changed = false;
     for (const i of this.#list(peer)) if (i.dir === 'in' && !i.read) { i.read = true; changed = true; }
-    if (!changed) return;
-    await this.#persist(peer);
+    if (changed) await this.#persist(peer);
+    // 바뀐 것이 없어도 배지는 다시 알린다 — 화면이 낡은 수를 들고 있을 수 있다.
     this.#emit({ type: 'badge', count: this.unread().total });
   }
 

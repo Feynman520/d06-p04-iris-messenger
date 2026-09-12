@@ -125,6 +125,10 @@ export function createHandler({ app, token, panelHtml = '', out = () => {}, log 
       const { displayName } = await readJsonBody(req);
       return sendJson(res, 200, await app.resetIdentity({ displayName }));
     }
+    if (method === 'POST' && p === '/api/identity/rename') {
+      const { displayName } = await readJsonBody(req);
+      return sendJson(res, 200, await app.rename(displayName));
+    }
 
     // ---- 편지 ----
     if (method === 'GET' && seg[1] === 'messages' && seg.length === 3) {

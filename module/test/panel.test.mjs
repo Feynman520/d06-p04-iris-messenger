@@ -63,6 +63,7 @@ test('⑤ 단계·본 화면의 필수 id가 모두 있다', () => {
     'contacts', 'chat', 'composer', 'settings-dialog', 'words-dialog',
     'invite-dialog', 'accept-dialog', 'confirm-dialog',
     'conn-dot', 'peerbar', 'file-input', 'count',
+    'set-name', 'set-rename',
   ];
   for (const id of ids) assert.ok(HTML.includes(`id="${id}"`), `id="${id}" 가 없다`);
   assert.equal(count(HTML, '<dialog id='), 5, '대화상자는 <dialog> 5개');
@@ -143,6 +144,7 @@ test('⑫ 서버의 영어 오류를 사람 말로 바꾼다', () => {
     ['blocked', '차단된 상대입니다'],
     ['mismatch', '12단어가 이 계정의 열쇠와 다릅니다'],
     ['display name required', '표시 이름을 넣으세요'],
+    ['display name too long', '표시 이름이 너무 깁니다(40자까지)'],
     ['bad hub url or key', '서버 주소 또는 키가 올바르지 않습니다'],
     ['internal error', '내부 오류가 났습니다. 다시 시도하세요'],
     ['Token has expired or is invalid', '코드가 만료됐거나 틀렸습니다'],

@@ -12,6 +12,7 @@ import { readJson, writeJson } from '../hub/client/store.mjs';
 import { Messages, TEXT_MAX, FILE_MAX, RISKY_EXT } from './messages.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
+export const NAME_MAX = 40; // 표시 이름 글자 수 상한(화면·API가 같은 값을 쓴다)
 
 // 단계(stage): nohub 허브 주소 없음 · out 로그인 전 · code 코드 입력 대기 · identity 열쇠 없음 · in 사용 가능
 export class App {
@@ -316,6 +317,19 @@ export class App {
   async mnemonic() {
     this.#needHub();
     return { words: await this.identity.mnemonic() };
+  }
+
+  // 이름만 바꾼다 — 열쇠·지문은 그대로다(열쇠 재설정과 다른 길).
+  async rename(displayName) {
+    this.#needSession();
+    const name = String(displayName ?? '').trim();
+    if (!name) throw new Error('display name required');
+    if ([...name].length > NAME_MAX) throw new Error('display name too long');
+    await this.identity.rename(name);
+    this.displayName = name;
+    await this.#saveSettings({ displayName: name });
+    this.#emitState();
+    return { displayName: name };
   }
 
   // ---- 설정 ----

@@ -402,10 +402,12 @@ dialog .foot{display:flex;gap:8px;justify-content:flex-end;padding:0 18px 18px}
     <div class="sec">
       <h3>계정</h3>
       <div class="fact"><b>메일 주소</b><span id="set-email">—</span></div>
-      <div class="fact"><b>표시 이름</b><span id="set-name">—</span></div>
       <div class="fact"><b>내 지문</b><span id="set-fp" class="fp">—</span></div>
-      <p class="hint">표시 이름은 열쇠 재설정 때 함께 바꿉니다.</p>
+      <label class="field" for="set-name" style="margin-top:10px"><span>표시 이름</span></label>
+      <input id="set-name" type="text" placeholder="함세준" autocomplete="off" maxlength="40">
+      <p class="hint">이름만 바뀝니다. 열쇠와 지문은 그대로이고 연락처에게 경고도 가지 않습니다.</p>
       <div class="acts">
+        <button id="set-rename" class="btn sm" type="button">이름 바꾸기</button>
         <button id="set-logout" class="btn sm" type="button">로그아웃</button>
         <button id="set-delete" class="btn sm danger" type="button">탈퇴</button>
       </div>
@@ -483,6 +485,7 @@ var ERRORS = {
   blocked: '차단된 상대입니다',
   mismatch: '12단어가 이 계정의 열쇠와 다릅니다',
   'display name required': '표시 이름을 넣으세요',
+  'display name too long': '표시 이름이 너무 깁니다(40자까지)',
   'bad hub url or key': '서버 주소 또는 키가 올바르지 않습니다',
   'internal error': '내부 오류가 났습니다. 다시 시도하세요',
   'Token has expired or is invalid': '코드가 만료됐거나 틀렸습니다'
@@ -1092,8 +1095,8 @@ document.addEventListener('visibilitychange', function () { if (document.visibil
 $('btn-settings').addEventListener('click', function () {
   say('set-err', '');
   say('set-email', (S && S.email) || '—');
-  say('set-name', (S && S.displayName) || '—');
   say('set-fp', (S && S.fingerprint) || '—');
+  $('set-name').value = (S && S.displayName) || '';
   say('set-version', (S && S.version) || '—');
   $('set-mute').checked = !!(S && S.notifyMuted);
   $('set-url').value = (S && S.hub && S.hub.url) || '';
@@ -1104,6 +1107,17 @@ $('btn-settings').addEventListener('click', function () {
 $('set-mute').addEventListener('change', async function (e) {
   try { await api('/api/settings', { json: { notifyMuted: e.target.checked } }); scheduleRefresh(); }
   catch (err) { say('set-err', human(err)); }
+});
+
+$('set-rename').addEventListener('click', async function () {
+  say('set-err', '');
+  $('set-rename').disabled = true;
+  try {
+    await api('/api/identity/rename', { json: { displayName: $('set-name').value.trim() } });
+    say('set-err', '바꿨습니다');
+    scheduleRefresh();
+  } catch (e) { say('set-err', human(e)); }
+  $('set-rename').disabled = false;
 });
 
 $('set-hub').addEventListener('click', async function () {

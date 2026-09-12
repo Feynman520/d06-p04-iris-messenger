@@ -519,3 +519,53 @@ test('⑱ 약속한 크기보다 큰 파일은 내려받아도 받아들이지 �
   assert.equal(last.status, 'failed');
   assert.equal(last.error, 'file too large');
 });
+
+// ── 검토 지적 반영(fix wave 1, 2026-09-13) ──────────────────────────────────
+
+test('⑲ markRead는 바뀐 것이 없어도 배지를 다시 알리고, history()는 사본을 준다', async (t) => {
+  const { fake, a, b, tempDir, make } = world(t);
+  const A = await make(a, b, tempDir('a'));
+  const events = [];
+  const B = await make(b, a, tempDir('b'), { onEvent: (e) => events.push(e) });
+
+  // 읽을 것이 하나도 없는 상대에게 markRead — 그래도 badge 한 번.
+  await B.markRead(a.id);
+  assert.deepEqual(events.filter((e) => e.type === 'badge'), [{ type: 'badge', count: 0 }]);
+
+  await A.sendText(b.id, '한 통');
+  await B.gapFill();
+  await B.markRead(a.id);                                  // 실제로 바뀜 → 배지
+  await B.markRead(a.id);                                  // 이미 다 읽음 → 그래도 배지
+  assert.equal(events.filter((e) => e.type === 'badge' && e.count === 0).length, 3);
+
+  // 돌려받은 항목을 고쳐도 우리 기록은 그대로다.
+  const got = B.history(a.id);
+  got[0].text = '바꿔치기';
+  got[0].read = false;
+  assert.equal(B.history(a.id)[0].text, '한 통');
+  assert.equal(B.unread().total, 0);
+});
+
+test('⑳ 파일 주소의 uuid는 정규형만 받는다(대문자·자리수 어긋남 거절)', async (t) => {
+  const { fake, a, b, tempDir, make } = world(t);
+  const B = await make(b, a, tempDir('b'));
+
+  const bad = [
+    `${a.id}/${crypto.randomUUID().toUpperCase()}`,        // 대문자
+    `${a.id}/${'0'.repeat(8)}-0000-0000-0000-00000000000`, // 한 자리 모자람
+    `${a.id}/----------------------------------aa`,        // 길이만 맞는 쓰레기
+  ];
+  for (const storagePath of bad) {
+    const body = seal({
+      senderPrivateRaw: a.privateRaw, senderPublicRaw: a.publicRaw, recipientPublicRaw: b.publicRaw,
+      envelope: { v: 1, kind: 'file', name: 'x.txt', size: 10, key: 'AAAA', storagePath },
+    });
+    fake.insertRow({ client_id: crypto.randomUUID(), sender: a.id, recipient: b.id, kind: 'file', body });
+  }
+  await B.gapFill();
+
+  const items = B.history(a.id);
+  assert.equal(items.length, bad.length);
+  for (const it of items) assert.equal(it.error, 'bad file path');
+  assert.equal(fake.calls.download, 0);
+});

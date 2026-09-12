@@ -286,6 +286,39 @@ test('⑮ 서버가 아는 열쇠가 내 열쇠와 다르면 stage "identity"로
   assert.equal(s.keyMismatch, false);
 });
 
+test('⑰ /api/identity/rename 은 이름만 바꾼다(열쇠·지문 그대로), 빈 이름·41자는 400', async (t) => {
+  const w = await world(t);
+  await signIn(w);
+  const before = await w.state();
+
+  const r = await w.json('/api/identity/rename', { method: 'POST', body: { displayName: '  새 이름  ' } });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.displayName, '새 이름');
+
+  const after = await w.state();
+  assert.equal(after.displayName, '새 이름');
+  assert.equal(after.fingerprint, before.fingerprint, '열쇠 지문은 그대로');
+  assert.equal(w.fake.profiles[0].display_name, '새 이름', '서버 profiles 도 따라간다');
+  assert.equal(w.fake.profiles.length, 1, '행이 새로 생기지 않는다');
+
+  // 다음 실행이 이어받도록 settings.json 에도 남는다.
+  const saved = JSON.parse(fssync.readFileSync(path.join(w.dir, 'settings.json'), 'utf8'));
+  assert.equal(saved.displayName, '새 이름');
+
+  const empty = await w.json('/api/identity/rename', { method: 'POST', body: { displayName: '   ' } });
+  assert.equal(empty.status, 400);
+  assert.equal(empty.body.error, 'display name required');
+
+  const long = await w.json('/api/identity/rename', { method: 'POST', body: { displayName: '가'.repeat(41) } });
+  assert.equal(long.status, 400);
+  assert.equal(long.body.error, 'display name too long');
+  assert.equal((await w.state()).displayName, '새 이름', '거절된 요청은 이름을 건드리지 않는다');
+
+  // 40자는 통과한다(경계).
+  const edge = await w.json('/api/identity/rename', { method: 'POST', body: { displayName: '나'.repeat(40) } });
+  assert.equal(edge.status, 200);
+});
+
 test('⑯ 코드 결함(TypeError)은 속내를 감춘 500, 사용자에게 뜻이 있는 오류는 그대로 400', async (t) => {
   const w = await world(t);
   const real = w.app.state.bind(w.app);
