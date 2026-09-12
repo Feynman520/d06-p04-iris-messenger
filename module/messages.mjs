@@ -19,6 +19,11 @@ const BACKOFF_MIN = 1000, BACKOFF_MAX = 60000, POLL_MS = 60000, WS_RETRY_MS = 60
 const safeName = (n) => String(n || 'file').replace(/[\\/:*?"<>|\x00-\x1f]/g, '_').replace(/^\.+/, '').trim().slice(0, 120) || 'file';
 // 상대 번호를 파일 이름으로 쓸 때의 보호막(서버 id는 uuid라 그대로 통과한다).
 const safePeer = (p) => String(p || 'unknown').replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 80) || 'unknown';
+// 봉투 안의 파일 위치는 보낸 이가 쓴 값이다 — `<보낸 이 번호>/<uuid>` 한 모양만 받는다.
+// (Storage 정책상 남의 칸을 가리키는 주소를 우리가 대신 읽어 주는 일을 막는다.)
+const UUID_RE = /^[0-9a-f-]{36}$/;
+const okStoragePath = (owner, p) => typeof p === 'string' && !!owner && p.startsWith(`${owner}/`) && UUID_RE.test(p.slice(String(owner).length + 1));
+const SEAL_OVERHEAD = 12 + 16; // 논스 + GCM 태그
 
 export class Messages {
   #items = new Map();   // peer → item[]
@@ -69,10 +74,15 @@ export class Messages {
 
   get connection() { return this.#conn; }
 
+  // 화면 콜백이 터져도 편지 흐름은 멈추지 않는다(기록은 이미 디스크에 남긴 뒤에 부른다).
+  #emit(event) {
+    try { this.onEvent(event); } catch (e) { this.log(`onEvent(${event?.type}): ${e?.message || e}`); }
+  }
+
   #setConn(c) {
     if (this.#conn === c) return;
     this.#conn = c;
-    this.onEvent({ type: 'connection', state: c });
+    this.#emit({ type: 'connection', state: c });
   }
 
   #file(peer) { return path.join(this.dir, `${safePeer(peer)}.ndjson`); }
@@ -123,7 +133,7 @@ export class Messages {
     for (const i of this.#list(peer)) if (i.dir === 'in' && !i.read) { i.read = true; changed = true; }
     if (!changed) return;
     await this.#persist(peer);
-    this.onEvent({ type: 'badge', count: this.unread().total });
+    this.#emit({ type: 'badge', count: this.unread().total });
   }
 
   #sealFor(peer, envelope) {
@@ -159,8 +169,18 @@ export class Messages {
     }
     await this.#saveOutbox();
     await this.#persist(item.peer);
-    this.onEvent({ type: 'message', peer: item.peer, item });
+    this.#emit({ type: 'message', peer: item.peer, item });
     return item;
+  }
+
+  // 네트워크에 손대기 **전에** 편지를 디스크에 남긴다(ndjson = pending, outbox = 재시도 예약).
+  // 여기서 프로그램이 죽어도 편지는 사라지지 않고, 다음 실행의 flushOutbox가 이어서 보낸다.
+  async #stage(item, row, { outbox = true } = {}) {
+    this.#list(item.peer).push(item);
+    if (outbox && !this.#outbox.some((o) => o.id === item.id)) this.#outbox.push({ id: item.id, peer: item.peer, row });
+    await this.#persist(item.peer);
+    if (outbox) await this.#saveOutbox();
+    this.#emit({ type: 'message', peer: item.peer, item });
   }
 
   async sendText(peer, text) {
@@ -170,8 +190,9 @@ export class Messages {
     const id = crypto.randomUUID();
     const sealed = this.#sealFor(peer, { v: 1, kind: 'text', text: body }); // 봉투가 안 되면 기록도 남기지 않는다
     const item = { id, peer, dir: 'out', kind: 'text', text: body, at: new Date(this.now()).toISOString(), status: 'pending', read: true };
-    this.#list(peer).push(item);
-    return this.#push(item, { client_id: id, sender: this.#me(), recipient: peer, kind: 'text', body: sealed });
+    const row = { client_id: id, sender: this.#me(), recipient: peer, kind: 'text', body: sealed };
+    await this.#stage(item, row);
+    return this.#push(item, row);
   }
 
   async sendFile(peer, { name, data } = {}) {
@@ -183,18 +204,23 @@ export class Messages {
     const envelope = { v: 1, kind: 'file', name: safeName(name), size: data.length, key: sealed.key, storagePath };
     const body = this.#sealFor(peer, envelope);
     const item = { id, peer, dir: 'out', kind: 'file', file: { name: envelope.name, size: envelope.size, key: sealed.key, storagePath }, at: new Date(this.now()).toISOString(), status: 'pending', read: true };
-    this.#list(peer).push(item);
+    const row = { client_id: id, sender: this.#me(), recipient: peer, kind: 'file', body, file_path: storagePath };
+    // 올리기 전에는 outbox에 넣지 않는다 — 파일이 아직 Storage에 없는데 INSERT만 재시도하면
+    // 받는 쪽이 열 수 없는 편지가 된다. 기록(pending)은 먼저 남긴다.
+    await this.#stage(item, row, { outbox: false });
     try {
       await this.supa.upload('files', storagePath, sealed.data);
     } catch (e) {
-      // 올리지 못한 파일은 재시도해도 같은 자리에 다시 올려야 하므로 outbox에 넣지 않는다.
       item.status = 'failed';
       item.error = `upload: ${e?.message || e}`;
       await this.#persist(peer);
-      this.onEvent({ type: 'message', peer, item });
+      this.#emit({ type: 'message', peer, item });
       return item;
     }
-    return this.#push(item, { client_id: id, sender: this.#me(), recipient: peer, kind: 'file', body, file_path: storagePath });
+    // 파일이 자리에 놓인 뒤에야 편지를 재시도 예약에 올린다.
+    if (!this.#outbox.some((o) => o.id === item.id)) this.#outbox.push({ id: item.id, peer, row });
+    await this.#saveOutbox();
+    return this.#push(item, row);
   }
 
   // 받기 버튼을 눌렀을 때만 내려받는다(자동 다운로드 없음).
@@ -204,8 +230,15 @@ export class Messages {
       if (!item) continue;
       if (item.kind !== 'file' || !item.file) throw new Error('not a file');
       if (item.file.savedPath && fs.existsSync(item.file.savedPath)) return item.file.savedPath;
+      // 내려받기 전 두 가지를 다시 확인한다: ① 주소가 보낸 이 자기 칸인가 ② 크기가 약속대로인가.
+      const owner = item.dir === 'in' ? item.peer : this.#me();
+      if (!okStoragePath(owner, item.file.storagePath)) throw new Error('bad file path');
+      const claimed = Number(item.file.size) > 0 ? Number(item.file.size) : FILE_MAX;
+      const cap = Math.min(claimed, FILE_MAX) + SEAL_OVERHEAD;
       const sealed = await this.supa.download('files', item.file.storagePath);
+      if (!Buffer.isBuffer(sealed) || sealed.length > cap) throw new Error('file too large');
       const data = openFile(sealed, item.file.key);
+      if (data.length > FILE_MAX) throw new Error('file too large');
       await ensureDir(this.filesDir);
       const head = String(item.id).slice(0, 8);
       let out = path.join(this.filesDir, `${head}-${item.file.name}`);
@@ -213,7 +246,7 @@ export class Messages {
       await writeFileAtomic(out, data);
       item.file.savedPath = out;
       await this.#persist(peer);
-      this.onEvent({ type: 'message', peer, item });
+      this.#emit({ type: 'message', peer, item });
       return out;
     }
     throw new Error('no such item');
@@ -234,52 +267,82 @@ export class Messages {
   // 미배달 편지를 훑어 복호화·저장하고 배달 표시를 남긴다(웹소켓을 놓쳤을 때의 안전망).
   gapFill() { return this.#serial('gap', () => this.#gapFill()); }
 
-  async #gapFill() {
-    const me = this.#me();
-    const rows = await this.supa.select(
-      'messages',
-      `select=id,client_id,sender,kind,body,file_path,created_at&recipient=eq.${me}&delivered_at=is.null&order=created_at.asc&limit=${MAX_BATCH}`,
-    ) || [];
-    const ids = [];
-    const touched = new Set();
-    for (const r of rows) {
-      ids.push(r.id);
-      const list = this.#list(r.sender);
-      if (list.some((i) => i.id === r.client_id)) continue; // 같은 편지를 두 번 저장하지 않는다
-      const item = { id: r.client_id, peer: r.sender, dir: 'in', kind: r.kind === 'file' ? 'file' : 'text', at: r.created_at, status: 'received', read: false };
-      const pub = this.contacts.publicKeyOf(r.sender);
-      if (!pub) {
-        item.status = 'failed';
-        item.error = 'unknown sender';
+  // 한 줄(서버) → 한 항목(로컬)으로 옮긴다. 열쇠·봉투·파일 주소를 여기서 전부 검사한다.
+  #toItem(r) {
+    const item = { id: r.client_id, peer: r.sender, dir: 'in', kind: r.kind === 'file' ? 'file' : 'text', at: r.created_at, status: 'received', read: false };
+    const pub = this.contacts.publicKeyOf(r.sender);
+    if (!pub) {
+      item.status = 'failed';
+      item.error = 'unknown sender';
+      return item;
+    }
+    try {
+      const env = open({ recipientPrivateRaw: this.identity.privateRaw, recipientPublicRaw: this.identity.publicRaw, senderPublicRaw: pub, blob: r.body });
+      if (env?.v !== 1 || (env.kind !== 'text' && env.kind !== 'file')) {
+        item.status = 'unsupported'; // 새 버전의 모듈이 보낸 편지 — 버리지 않고 보관만 한다
+        item.raw = r.body;
+      } else if (env.kind === 'text') {
+        item.kind = 'text';
+        item.text = String(env.text ?? '').slice(0, TEXT_MAX);
       } else {
-        try {
-          const env = open({ recipientPrivateRaw: this.identity.privateRaw, recipientPublicRaw: this.identity.publicRaw, senderPublicRaw: pub, blob: r.body });
-          if (env?.v !== 1 || (env.kind !== 'text' && env.kind !== 'file')) {
-            item.status = 'unsupported'; // 새 버전의 모듈이 보낸 편지 — 버리지 않고 보관만 한다
-            item.raw = r.body;
-          } else if (env.kind === 'text') {
-            item.kind = 'text';
-            item.text = String(env.text ?? '').slice(0, TEXT_MAX);
-          } else {
-            item.kind = 'file';
-            item.file = { name: safeName(env.name), size: Number(env.size) || 0, key: String(env.key), storagePath: String(env.storagePath || r.file_path || '') };
-          }
-        } catch {
+        item.kind = 'file';
+        const storagePath = String(env.storagePath || r.file_path || '');
+        item.file = { name: safeName(env.name), size: Number(env.size) || 0, key: String(env.key), storagePath };
+        // 보낸 이가 자기 칸이 아닌 주소를 적어 보내면 받지 않는다(남의 칸을 대신 읽어 주지 않는다).
+        if (!okStoragePath(r.sender, storagePath)) {
           item.status = 'failed';
-          item.error = 'cannot open';
+          item.error = 'bad file path';
+        } else if (item.file.size > FILE_MAX) {
+          item.status = 'failed';
+          item.error = 'file too large';
         }
       }
-      list.push(item);
-      touched.add(r.sender);
-      this.onEvent({ type: 'message', peer: r.sender, item });
+    } catch {
+      item.status = 'failed';
+      item.error = 'cannot open';
     }
-    for (const peer of touched) await this.#persist(peer);
-    if (ids.length) {
-      // 열지 못한 편지도 배달 표시를 남긴다 — 서버에 영원히 남지 않게.
-      try { await this.supa.rpc('mark_delivered', { p_ids: ids }); } catch (e) { this.log(`mark_delivered: ${e.message}`); }
-      this.onEvent({ type: 'badge', count: this.unread().total });
+    return item;
+  }
+
+  async #gapFill() {
+    const me = this.#me();
+    let total = 0;
+    // 한 쪽(200줄)씩 끊어 가져온다. 배달 표시를 남기면 다음 쪽에는 그다음 편지가 올라온다.
+    for (let page = 0; page < 50; page += 1) {
+      const rows = await this.supa.select(
+        'messages',
+        `select=id,client_id,sender,kind,body,file_path,created_at&recipient=eq.${me}&delivered_at=is.null&order=created_at.asc&limit=${MAX_BATCH}`,
+      ) || [];
+      if (!rows.length) break;
+      total += rows.length;
+      const ids = [];
+      const touched = new Set();
+      const fresh = [];
+      for (const r of rows) {
+        ids.push(r.id);
+        const list = this.#list(r.sender);
+        if (list.some((i) => i.id === r.client_id)) continue; // 같은 편지를 두 번 저장하지 않는다
+        const item = this.#toItem(r);
+        list.push(item);
+        touched.add(r.sender);
+        fresh.push(item);
+      }
+      // ① 먼저 디스크에 남기고 ② 배달 표시를 남긴 뒤 ③ 화면에 알린다.
+      // 화면 콜백이 터져도 편지는 이미 안전하다(알림만 놓친다).
+      for (const peer of touched) await this.#persist(peer);
+      let marked = true;
+      try {
+        await this.supa.rpc('mark_delivered', { p_ids: ids }); // 열지 못한 편지도 표시한다 — 서버에 영원히 남지 않게
+      } catch (e) {
+        marked = false;
+        this.log(`mark_delivered: ${e.message}`);
+      }
+      for (const item of fresh) this.#emit({ type: 'message', peer: item.peer, item });
+      this.#emit({ type: 'badge', count: this.unread().total });
+      // 표시를 못 남겼으면 다음 쪽도 같은 줄이 올라온다 → 여기서 멈춘다.
+      if (!marked || rows.length < MAX_BATCH) break;
     }
-    return rows.length;
+    return total;
   }
 
   start() {

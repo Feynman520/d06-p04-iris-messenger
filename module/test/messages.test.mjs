@@ -16,6 +16,16 @@ function party() {
   return { id: crypto.randomUUID(), privateRaw, publicRaw };
 }
 
+// 조건이 참이 될 때까지 짧게 기다린다(디스크 쓰기처럼 await할 손잡이가 없는 경우).
+async function waitFor(fn, { timeout = 2000, step = 5 } = {}) {
+  const until = Date.now() + timeout;
+  while (Date.now() < until) {
+    if (fn()) return true;
+    await new Promise((r) => setTimeout(r, step));
+  }
+  throw new Error('waitFor: 시간 안에 조건이 참이 되지 않았다');
+}
+
 // 이 시험에서 필요한 만큼의 Contacts 대역(고정된 공개키 조회만). 실물 연동은 Task 11.
 const contactsWith = (pairs) => {
   const map = new Map(pairs);
@@ -284,18 +294,32 @@ test('⑩ 재시작해도 기록이 남는다(ndjson) + 열 수 없는 봉투는
   assert.equal(B2.history(a.id)[1].file.name, '보고서.txt');
 });
 
-test('⑫ 도어벨과 폴링이 겹쳐도(동시 gapFill) 같은 편지를 두 번 저장하지 않는다', async (t) => {
+test('⑫ 도어벨과 폴링이 겹쳐도 mark_delivered를 두 번 부르지 않는다(동시 gapFill 직렬화)', async (t) => {
   const { fake, a, b, tempDir, make } = world(t);
   const A = await make(a, b, tempDir('a'));
   const events = [];
   const B = await make(b, a, tempDir('b'), { onEvent: (e) => events.push(e) });
 
   await A.sendText(b.id, '한 통');
+  const rpcBefore = fake.calls.rpc;
   const [n1, n2, n3] = await Promise.all([B.gapFill(), B.gapFill(), B.gapFill()]);
   assert.equal(n1, 1);
-  assert.equal(n2 + n3, 0, '뒤이은 호출은 이미 배달 처리된 뒤라 0건');
+  assert.equal(n2 + n3, 0, '뒤이은 호출은 이미 배달 처리된 뒤라 0건 — 같은 줄을 다시 집지 않는다');
+  assert.equal(fake.calls.rpc - rpcBefore, 1, 'mark_delivered는 한 번만');
   assert.equal(B.history(a.id).length, 1);
   assert.equal(events.filter((e) => e.type === 'message').length, 1);
+});
+
+test('⑬ 겹친 flushOutbox는 같은 편지로 INSERT를 두 번 쏘지 않는다', async (t) => {
+  const { fake, a, b, tempDir, make } = world(t);
+  const A = await make(a, b, tempDir('a'));
+
+  fake.failNext(1);
+  await A.sendText(b.id, '대기 중');
+  const before = fake.calls.insert;
+  await Promise.all([A.flushOutbox(), A.flushOutbox(), A.flushOutbox()]);
+  assert.equal(fake.calls.insert - before, 1, '보낼 것이 하나면 INSERT도 한 번');
+  assert.equal(fake.rows.length, 1);
 });
 
 test('⑪ 웹소켓 3회 연속 실패 → slow + 60초 폴링, stop()이 타이머를 거둔다', async (t) => {
@@ -335,4 +359,163 @@ test('⑪ 웹소켓 3회 연속 실패 → slow + 60초 폴링, stop()이 타이
   assert.equal(B.connection, 'stopped');
   assert.deepEqual(timers.pending(), []);
   assert.deepEqual(states, ['offline', 'slow', 'stopped'], '같은 상태는 다시 알리지 않는다');
+});
+
+// ── 검토 지적 반영(fix round 1) ─────────────────────────────────────────────
+
+test('⑭ 화면 콜백이 터져도 편지는 남는다 — 기록 먼저, 알림 나중', async (t) => {
+  const { fake, a, b, tempDir, make } = world(t);
+  const A = await make(a, b, tempDir('a'));
+  const dirB = tempDir('b');
+  let boom = 1;
+  const logs = [];
+  const B = await make(b, a, dirB, {
+    log: (m) => logs.push(m),
+    onEvent: (e) => { if (e.type === 'message' && boom-- > 0) throw new Error('화면 폭발'); },
+  });
+
+  await A.sendText(b.id, '잃으면 안 되는 편지');
+  await B.gapFill(); // 콜백이 터져도 던지지 않는다
+
+  const file = path.join(dirB, 'messages', `${a.id}.ndjson`);
+  const onDisk = fssync.readFileSync(file, 'utf8').trim().split('\n').map((l) => JSON.parse(l));
+  assert.equal(onDisk.length, 1, 'ndjson에 편지가 남아 있어야 한다');
+  assert.equal(onDisk[0].text, '잃으면 안 되는 편지');
+  assert.notEqual(fake.rows[0].delivered_at, null, '배달 표시도 남는다');
+  assert.ok(logs.some((m) => m.startsWith('onEvent(')), '콜백 오류는 로그로만 남는다');
+
+  // 두 번째 gapFill이 와도(서버엔 이미 배달됨) 기록은 그대로 한 통
+  assert.equal(await B.gapFill(), 0);
+  assert.equal(B.history(a.id).length, 1);
+
+  const B2 = new Messages({ stateDir: dirB, supa: fake, identity: { privateRaw: b.privateRaw, publicRaw: b.publicRaw }, contacts: contactsWith([[a.id, a.publicRaw]]), me: () => b.id });
+  await B2.load();
+  assert.equal(B2.history(a.id)[0].text, '잃으면 안 되는 편지');
+});
+
+test('⑮ 보내기는 outbox 먼저 — 네트워크가 멈춰 있어도 pending 기록과 예약이 남는다', async (t) => {
+  const { fake, a, b, tempDir, make } = world(t);
+  const dirA = tempDir('a');
+  // insert가 영원히 응답하지 않는 허브(가짜를 감싸기만 한다 — _fakesupa.mjs는 건드리지 않는다)
+  const hung = {
+    select: (...x) => fake.select(...x),
+    insert: () => new Promise(() => {}),
+    rpc: (...x) => fake.rpc(...x),
+    upload: (...x) => fake.upload(...x),
+    download: (...x) => fake.download(...x),
+    subscribe: (o) => fake.subscribe(o),
+  };
+  const A = await make(a, b, dirA, { supa: hung });
+
+  const inFlight = A.sendText(b.id, '멈춘 편지'); // 일부러 기다리지 않는다
+  inFlight.catch(() => {});
+
+  const msgFile = path.join(dirA, 'messages', `${b.id}.ndjson`);
+  const outFile = path.join(dirA, 'outbox.json');
+  await waitFor(() => fssync.existsSync(msgFile) && fssync.existsSync(outFile));
+
+  const onDisk = JSON.parse(fssync.readFileSync(msgFile, 'utf8').trim());
+  assert.equal(onDisk.status, 'pending');
+  assert.equal(onDisk.text, '멈춘 편지');
+  const outbox = JSON.parse(fssync.readFileSync(outFile, 'utf8'));
+  assert.equal(outbox.length, 1);
+  assert.equal(outbox[0].id, onDisk.id);
+  assert.equal(outbox[0].peer, b.id);
+  assert.ok(outbox[0].row.body, '재시도에 쓸 암호문이 함께 있다');
+  assert.equal(fake.rows.length, 0, '서버에는 아직 아무것도 없다');
+
+  // 다음 실행이 이어받는다: 멀쩡한 허브로 새 인스턴스를 띄우면 flushOutbox가 보낸다
+  const A2 = new Messages({ stateDir: dirA, supa: fake, identity: { privateRaw: a.privateRaw, publicRaw: a.publicRaw }, contacts: contactsWith([[b.id, b.publicRaw]]), me: () => a.id });
+  await A2.load();
+  await A2.flushOutbox();
+  assert.equal(fake.rows.length, 1);
+  assert.equal(A2.history(b.id)[0].status, 'sent');
+  assert.deepEqual(JSON.parse(fssync.readFileSync(outFile, 'utf8')), []);
+});
+
+test('⑯ gapFill 쪽 넘기기: 201통도 한 번의 호출로 전부 받는다', async (t) => {
+  const { fake, a, b, tempDir, make } = world(t);
+  const B = await make(b, a, tempDir('b'));
+
+  for (let i = 0; i < 201; i += 1) {
+    const body = seal({ senderPrivateRaw: a.privateRaw, senderPublicRaw: a.publicRaw, recipientPublicRaw: b.publicRaw, envelope: { v: 1, kind: 'text', text: `편지 ${i}` } });
+    fake.insertRow({ client_id: crypto.randomUUID(), sender: a.id, recipient: b.id, kind: 'text', body });
+  }
+
+  const before = fake.calls.select;
+  assert.equal(await B.gapFill(), 201);
+  assert.equal(fake.calls.select - before, 2, '200 + 1 두 쪽');
+  const hist = B.history(a.id, { limit: 1000 });
+  assert.equal(hist.length, 201);
+  assert.equal(hist[0].text, '편지 0');
+  assert.equal(hist[200].text, '편지 200');
+  assert.equal(fake.rows.filter((r) => r.delivered_at == null).length, 0, '전부 배달 표시');
+  assert.equal(await B.gapFill(), 0);
+});
+
+test('⑰ 봉투의 파일 주소가 보낸 이 칸이 아니면 거절한다(bad file path)', async (t) => {
+  const { fake, a, b, tempDir, make } = world(t);
+  const outsider = party();
+  const B = await make(b, a, tempDir('b'));
+
+  const bad = [
+    `${outsider.id}/${crypto.randomUUID()}`, // 남의 칸
+    `${a.id}/../${b.id}/${crypto.randomUUID()}`, // 경로 빠져나가기
+    `${a.id}/not-a-uuid`,
+    '',
+  ];
+  for (const storagePath of bad) {
+    const body = seal({
+      senderPrivateRaw: a.privateRaw, senderPublicRaw: a.publicRaw, recipientPublicRaw: b.publicRaw,
+      envelope: { v: 1, kind: 'file', name: 'x.txt', size: 10, key: 'AAAA', storagePath },
+    });
+    fake.insertRow({ client_id: crypto.randomUUID(), sender: a.id, recipient: b.id, kind: 'file', body });
+  }
+  await B.gapFill();
+
+  const items = B.history(a.id);
+  assert.equal(items.length, bad.length);
+  for (const it of items) {
+    assert.equal(it.status, 'failed');
+    assert.equal(it.error, 'bad file path');
+    await assert.rejects(() => B.fetchFile(it.id), /bad file path/, '받기 버튼도 같은 자리에서 막힌다');
+  }
+  assert.equal(fake.calls.download, 0, '거절한 주소는 내려받지 않는다');
+  assert.equal(fake.rows.filter((r) => r.delivered_at == null).length, 0);
+});
+
+test('⑱ 약속한 크기보다 큰 파일은 내려받아도 받아들이지 않는다(file too large)', async (t) => {
+  const { fake, a, b, tempDir, make } = world(t);
+  const A = await make(a, b, tempDir('a'));
+  const B = await make(b, a, tempDir('b'));
+
+  // A가 정상적으로 올린 1KB 파일
+  const data = Buffer.alloc(1024, 7);
+  const real = await A.sendFile(b.id, { name: 'real.bin', data });
+
+  // 같은 자리를 가리키면서 "5바이트짜리"라고 우기는 편지
+  const body = seal({
+    senderPrivateRaw: a.privateRaw, senderPublicRaw: a.publicRaw, recipientPublicRaw: b.publicRaw,
+    envelope: { v: 1, kind: 'file', name: 'liar.bin', size: 5, key: real.file.key, storagePath: real.file.storagePath },
+  });
+  fake.insertRow({ client_id: crypto.randomUUID(), sender: a.id, recipient: b.id, kind: 'file', body, file_path: real.file.storagePath });
+
+  await B.gapFill();
+  const [honest, liar] = B.history(a.id);
+  assert.equal(honest.status, 'received');
+  assert.equal(liar.file.size, 5);
+  await assert.rejects(() => B.fetchFile(liar.id), /file too large/);
+  // 정직한 쪽은 그대로 받아진다
+  assert.ok(fssync.readFileSync(await B.fetchFile(honest.id)).equals(data));
+
+  // 봉투가 아예 10MB 초과를 주장하면 받는 즉시 failed
+  const huge = seal({
+    senderPrivateRaw: a.privateRaw, senderPublicRaw: a.publicRaw, recipientPublicRaw: b.publicRaw,
+    envelope: { v: 1, kind: 'file', name: 'huge.bin', size: FILE_MAX + 1, key: real.file.key, storagePath: `${a.id}/${crypto.randomUUID()}` },
+  });
+  fake.insertRow({ client_id: crypto.randomUUID(), sender: a.id, recipient: b.id, kind: 'file', body: huge });
+  await B.gapFill();
+  const last = B.history(a.id).at(-1);
+  assert.equal(last.status, 'failed');
+  assert.equal(last.error, 'file too large');
 });
