@@ -284,6 +284,20 @@ test('⑩ 재시작해도 기록이 남는다(ndjson) + 열 수 없는 봉투는
   assert.equal(B2.history(a.id)[1].file.name, '보고서.txt');
 });
 
+test('⑫ 도어벨과 폴링이 겹쳐도(동시 gapFill) 같은 편지를 두 번 저장하지 않는다', async (t) => {
+  const { fake, a, b, tempDir, make } = world(t);
+  const A = await make(a, b, tempDir('a'));
+  const events = [];
+  const B = await make(b, a, tempDir('b'), { onEvent: (e) => events.push(e) });
+
+  await A.sendText(b.id, '한 통');
+  const [n1, n2, n3] = await Promise.all([B.gapFill(), B.gapFill(), B.gapFill()]);
+  assert.equal(n1, 1);
+  assert.equal(n2 + n3, 0, '뒤이은 호출은 이미 배달 처리된 뒤라 0건');
+  assert.equal(B.history(a.id).length, 1);
+  assert.equal(events.filter((e) => e.type === 'message').length, 1);
+});
+
 test('⑪ 웹소켓 3회 연속 실패 → slow + 60초 폴링, stop()이 타이머를 거둔다', async (t) => {
   const { fake, a, b, tempDir, make } = world(t);
   const timers = fakeTimers();

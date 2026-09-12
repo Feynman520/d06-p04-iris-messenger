@@ -31,6 +31,7 @@ export class Messages {
   #retryWs = null;
   #conn = 'stopped';
   #bgJobs = new Set();
+  #queues = new Map(); // 이름 → 직렬화 사슬
 
   constructor(o) {
     Object.assign(this, {
@@ -56,6 +57,14 @@ export class Messages {
   // 배경 작업이 모두 끝날 때까지 기다린다(작업이 또 작업을 낳는 경우까지).
   async settle() {
     while (this.#bgJobs.size) await Promise.all([...this.#bgJobs]);
+  }
+
+  // 같은 이름의 일은 한 번에 하나씩만 돈다(도어벨과 폴링이 겹쳐 같은 편지를 두 번 저장하는 일 방지).
+  #serial(name, fn) {
+    const prev = this.#queues.get(name) || Promise.resolve();
+    const run = prev.then(fn, fn);
+    this.#queues.set(name, run.then(() => {}, () => {}));
+    return run;
   }
 
   get connection() { return this.#conn; }
@@ -210,7 +219,9 @@ export class Messages {
     throw new Error('no such item');
   }
 
-  async flushOutbox() {
+  flushOutbox() { return this.#serial('outbox', () => this.#flushOutbox()); }
+
+  async #flushOutbox() {
     for (const entry of [...this.#outbox]) {
       const item = this.#list(entry.peer).find((i) => i.id === entry.id);
       if (!item) { this.#outbox = this.#outbox.filter((o) => o !== entry); continue; }
@@ -221,7 +232,9 @@ export class Messages {
   }
 
   // 미배달 편지를 훑어 복호화·저장하고 배달 표시를 남긴다(웹소켓을 놓쳤을 때의 안전망).
-  async gapFill() {
+  gapFill() { return this.#serial('gap', () => this.#gapFill()); }
+
+  async #gapFill() {
     const me = this.#me();
     const rows = await this.supa.select(
       'messages',
