@@ -298,14 +298,16 @@ dialog .foot{display:flex;gap:8px;justify-content:flex-end;padding:0 18px 18px}
   <div class="card">
     <div id="idn-mismatch" hidden style="border:1px solid var(--bad);border-radius:10px;padding:11px 13px;margin-bottom:16px">
       <p style="margin:0 0 4px;color:var(--bad);font-weight:600">이 PC의 열쇠가 계정의 열쇠와 다릅니다</p>
-      <p style="margin:0;color:var(--mut);font-size:13px">둘 중 하나를 고르세요. 열쇠를 재설정하면 예전에 받은 글은 열 수 없습니다.</p>
+      <p style="margin:0;color:var(--mut);font-size:13px">아래 둘 중 하나만 할 수 있습니다. 이 계정의 12단어가 있으면 복원하세요.</p>
       <div class="split" style="margin-top:10px">
         <button id="idn-mm-restore" class="btn sm" type="button">12단어로 복원</button>
         <button id="idn-mm-reset" class="btn sm danger" type="button">열쇠 재설정</button>
       </div>
     </div>
-    <h1>이 PC의 열쇠를 만듭니다</h1>
-    <p class="lead">열쇠는 이 PC 밖으로 나가지 않습니다. 서버는 잠긴 글만 옮깁니다.</p>
+    <div id="idn-normal">
+      <h1>이 PC의 열쇠를 만듭니다</h1>
+      <p class="lead">열쇠는 이 PC 밖으로 나가지 않습니다. 서버는 잠긴 글만 옮깁니다.</p>
+    </div>
     <label class="field" for="idn-name"><span>상대에게 보일 이름</span></label>
     <input id="idn-name" type="text" placeholder="함세준" autocomplete="off">
     <div id="idn-words-wrap" hidden style="margin-top:14px">
@@ -425,7 +427,7 @@ dialog .foot{display:flex;gap:8px;justify-content:flex-end;padding:0 18px 18px}
       <label class="field" for="set-url"><span>주소</span></label>
       <input id="set-url" type="text" placeholder="https://xxxx.supabase.co" autocomplete="off">
       <label class="field" for="set-key" style="margin-top:10px"><span>anon key</span></label>
-      <input id="set-key" type="text" placeholder="새로 넣을 때만 채웁니다" autocomplete="off">
+      <input id="set-key" type="text" placeholder="서버를 바꿀 때만 채웁니다" autocomplete="off">
       <p class="hint">저장하면 로그아웃됩니다. 다른 서버의 계정은 서로 다른 계정입니다.</p>
       <div class="acts"><button id="set-hub" class="btn sm" type="button">서버 주소 저장</button></div>
     </div>
@@ -467,7 +469,32 @@ var STATUS_LABEL = {
   blocked_by_me: '내가 차단함',
   blocked_me: '상대가 차단함'
 };
+var RESET_WARN = "재설정하면 이 PC의 옛 편지는 다시 열 수 없고 연락처들에게 '열쇠 바뀜' 경고가 갑니다";
 var CONN_LABEL = { online: '연결됨', slow: '느림', offline: '끊김', stopped: '대기' };
+
+// 서버·라이브러리가 주는 영어 오류를 사람 말로 바꾼다. 모르는 말은 그대로 보여 준다(숨기지 않는다).
+var ERRORS = {
+  'bad email': '메일 주소 형식이 아닙니다',
+  'bad code': '코드 또는 링크 형식이 아닙니다',
+  locked: '5회 틀려 잠겼습니다. 코드를 다시 받으세요',
+  'invalid or expired invite': '초대 코드가 틀렸거나 만료됐습니다',
+  'too many attempts, wait a minute': '시도가 너무 많습니다. 1분 뒤 다시 하세요',
+  'fingerprint mismatch': '지문이 맞지 않습니다. 코드를 다시 확인하세요(서버가 열쇠를 바꿔치기했을 수 있습니다)',
+  blocked: '차단된 상대입니다',
+  mismatch: '12단어가 이 계정의 열쇠와 다릅니다',
+  'display name required': '표시 이름을 넣으세요',
+  'bad hub url or key': '서버 주소 또는 키가 올바르지 않습니다',
+  'internal error': '내부 오류가 났습니다. 다시 시도하세요',
+  'Token has expired or is invalid': '코드가 만료됐거나 틀렸습니다'
+};
+
+function human(e) {
+  var msg = (e && e.message) || String(e || '');
+  if (ERRORS[msg]) return ERRORS[msg];
+  if ((e && e.status === 0) || msg.indexOf('network:') === 0) return '서버에 연결할 수 없습니다';
+  if (msg.toLowerCase().indexOf('expired') >= 0) return '코드가 만료됐거나 틀렸습니다';
+  return msg;
+}
 
 var S = null;          // 마지막 state
 var peer = null;       // 열린 대화 상대
@@ -476,6 +503,7 @@ var es = null;
 var refreshTimer = null;
 var autoPicked = false;
 var backToEmail = false;
+var sending = false;    // 보내는 중이면 입력칸·단추를 잠근다
 
 /* ── 창구 하나 ─────────────────────────────────────────────────── */
 async function api(p, opt) {
@@ -489,7 +517,14 @@ async function api(p, opt) {
   } else if (opt.raw !== undefined) {
     init.body = opt.raw;
   }
-  var res = await fetch(url, init);
+  var res;
+  try {
+    res = await fetch(url, init);
+  } catch (e) { // 모듈 프로세스가 내려갔거나 전선이 끊긴 경우
+    var net = new Error('network: ' + (e && e.message ? e.message : e));
+    net.status = 0;
+    throw net;
+  }
   var data = {};
   try { data = await res.json(); } catch (e) { data = {}; }
   if (!res.ok) {
@@ -566,7 +601,12 @@ function render() {
     var el = $('stage-' + STAGES[i]);
     if (el) el.hidden = STAGES[i] !== stage;
   }
+  // 열쇠가 어긋난 상태에서는 "새 열쇠 만들기"를 숨긴다 — 그 길도 이 PC의 옛 열쇠를 지우기 때문에,
+  // 물어보지 않고 누를 수 있는 단추로 두면 안 된다. 남는 길은 ① 12단어 복원 ② 확인을 거친 재설정뿐.
   $('idn-mismatch').hidden = !S.keyMismatch;
+  $('idn-normal').hidden = !!S.keyMismatch;
+  $('idn-create').hidden = !!S.keyMismatch;
+  if (S.keyMismatch) $('idn-words-wrap').hidden = false;
   if (stage === 'out') say('out-hub', (S.hub && S.hub.url) || '아직 없음');
   if (stage === 'code') say('code-email', S.email || '메일 주소');
   if (stage !== 'in') return;
@@ -729,7 +769,7 @@ function paintComposer() {
   else if (c.status === 'blocked_by_me') why = '차단을 풀어야 보낼 수 있습니다.';
   else if (c.status === 'blocked_me') why = '상대가 차단해 보낼 수 없습니다.';
   else if (S.hubMismatch) why = '서버와 판이 맞지 않아 지금은 보낼 수 없습니다.';
-  var ok = !why;
+  var ok = !why && !sending;
   $('msg').disabled = !ok;
   $('btn-send').disabled = !ok;
   $('btn-file').disabled = !ok;
@@ -760,16 +800,18 @@ async function openPeer(id) {
     items = r.items || [];
     renderChat();
   } catch (e) {
-    say('sendmsg', e.message);
+    say('sendmsg', human(e));
   }
   readOpen();
 }
 
-async function readOpen() {
+// force=true면 state의 안 읽은 수를 보지 않고 곧장 읽음 처리한다. 새 편지가 방금 온 순간에는
+// S.unread가 아직 낡아(120ms 묶음 갱신 전) 첫 통을 놓치기 때문이다. 한 번 더 부르는 건 해가 없다.
+async function readOpen(force) {
   if (!peer) return;
-  var by = (S && S.unread && S.unread.byPeer) || {};
-  if (!by[peer]) return;
   if (document.visibilityState !== 'visible') return;
+  var by = (S && S.unread && S.unread.byPeer) || {};
+  if (!force && !by[peer]) return;
   try { await api('/api/read', { json: { peer: peer } }); } catch (e) { /* 읽음 표시는 실패해도 조용히 */ }
   scheduleRefresh();
 }
@@ -790,39 +832,57 @@ function scheduleRefresh() {
 }
 
 /* ── 보내기 ────────────────────────────────────────────────────── */
+// 상한은 state().limits에서 온다 — 숫자를 화면에 박아 두지 않는다.
+function fileMax() { return (S && S.limits && S.limits.fileMax) || 10 * 1024 * 1024; }
+function tooBigText() { return '파일이 너무 큽니다(' + Math.round(fileMax() / 1048576) + 'MB)'; }
+
+// 보내는 동안 칸과 단추를 잠근다(Enter를 두 번 눌러도 같은 글이 두 통 나가지 않게).
+function lockSend(on) {
+  sending = on;
+  if (on) {
+    $('msg').disabled = true;
+    $('btn-send').disabled = true;
+    $('btn-file').disabled = true;
+    return;
+  }
+  paintComposer();                       // 상대 상태에 따라 다시 열거나 닫는다
+  if (!$('msg').disabled) $('msg').focus();
+}
+
 async function sendText() {
+  if (sending) return;
   var text = $('msg').value;
   if (!peer || !text.trim()) return;
   var max = (S.limits && S.limits.textMax) || 4000;
   if (Array.from(text).length > max) { say('sendmsg', '글이 너무 깁니다(' + max + '자)'); return; }
   say('sendmsg', '');
-  $('btn-send').disabled = true;
+  lockSend(true);
   try {
     var r = await api('/api/send', { json: { peer: peer, text: text } });
     $('msg').value = '';
     $('msg').style.height = 'auto';
+    countText();
     if (r.item) { upsert(r.item); renderChat(); }
   } catch (e) {
-    say('sendmsg', e.message);
+    say('sendmsg', human(e));
   }
-  paintComposer();
+  lockSend(false);
 }
 
 async function sendFile(file) {
-  if (!peer || !file) return;
-  var max = (S.limits && S.limits.fileMax) || 10485760;
-  if (file.size > max) { say('sendmsg', '파일이 너무 큽니다(10MB)'); return; }
+  if (sending || !peer || !file) return;
+  if (file.size > fileMax()) { say('sendmsg', tooBigText()); return; }
   say('sendmsg', '보내는 중: ' + file.name);
-  $('btn-file').disabled = true;
+  lockSend(true);
   try {
     var q = '/api/send-file?peer=' + encodeURIComponent(peer) + '&name=' + encodeURIComponent(file.name);
     var r = await api(q, { raw: file });
     say('sendmsg', '');
     if (r.item) { upsert(r.item); renderChat(); }
   } catch (e) {
-    say('sendmsg', e.status === 413 ? '파일이 너무 큽니다(10MB)' : e.message);
+    say('sendmsg', e.status === 413 ? tooBigText() : human(e));
   }
-  paintComposer();
+  lockSend(false);
 }
 
 async function getFile(id, btn) {
@@ -836,7 +896,7 @@ async function getFile(id, btn) {
       delete items[i].fetchError;
     }
   } catch (e) {
-    for (var j = 0; j < items.length; j += 1) if (items[j].id === id) items[j].fetchError = e.message;
+    for (var j = 0; j < items.length; j += 1) if (items[j].id === id) items[j].fetchError = human(e);
   }
   renderChat();
 }
@@ -855,7 +915,7 @@ async function contactAction(id, action, label) {
     if (action === 'remove' || action === 'reject') { peer = null; items = []; renderChat(); }
     scheduleRefresh();
   } catch (e) {
-    say('sendmsg', e.message);
+    say('sendmsg', human(e));
   }
 }
 
@@ -902,7 +962,7 @@ $('nohub-save').addEventListener('click', async function () {
   try {
     await api('/api/settings', { json: { hubUrl: $('nohub-url').value.trim(), anonKey: $('nohub-key').value.trim() } });
     scheduleRefresh();
-  } catch (e) { say('nohub-err', e.message); }
+  } catch (e) { say('nohub-err', human(e)); }
 });
 
 $('out-agree').addEventListener('change', function (e) { $('out-send').disabled = !e.target.checked; });
@@ -913,7 +973,7 @@ $('out-send').addEventListener('click', async function () {
     await api('/api/login/email', { json: { email: $('out-email').value.trim() } });
     backToEmail = false;
     scheduleRefresh();
-  } catch (e) { say('out-err', e.message); }
+  } catch (e) { say('out-err', human(e)); }
   $('out-send').disabled = !$('out-agree').checked;
 });
 
@@ -924,13 +984,13 @@ $('code-go').addEventListener('click', async function () {
     await api('/api/login/code', { json: { email: S.email, code: $('code-input').value.trim() } });
     $('code-input').value = '';
     scheduleRefresh();
-  } catch (e) { say('code-err', e.message); }
+  } catch (e) { say('code-err', human(e)); }
   $('code-go').disabled = false;
 });
 $('code-again').addEventListener('click', async function () {
   say('code-err', '');
   try { await api('/api/login/email', { json: { email: S.email } }); say('code-err', '새 코드를 보냈습니다. 메일함을 확인하세요.'); }
-  catch (e) { say('code-err', e.message); }
+  catch (e) { say('code-err', human(e)); }
 });
 $('code-back').addEventListener('click', function () { backToEmail = true; render(); });
 
@@ -948,7 +1008,7 @@ $('idn-create').addEventListener('click', async function () {
     var r = await api('/api/identity', { json: { displayName: name } });
     if (r.words) showWords(r.words);
     scheduleRefresh();
-  } catch (e) { say('idn-err', e.message); }
+  } catch (e) { say('idn-err', human(e)); }
   $('idn-create').disabled = false;
 });
 
@@ -962,19 +1022,19 @@ $('idn-restore').addEventListener('click', async function () {
     await api('/api/identity', { json: { displayName: $('idn-name').value.trim(), words: words } });
     $('idn-words').value = '';
     scheduleRefresh();
-  } catch (e) { say('idn-err', e.message); }
+  } catch (e) { say('idn-err', human(e)); }
   $('idn-restore').disabled = false;
 });
 
 $('idn-mm-restore').addEventListener('click', function () { showWordsArea(); });
 $('idn-mm-reset').addEventListener('click', async function () {
-  var yes = await ask('이 PC의 열쇠를 새로 만듭니다. 예전에 받은 글은 다시 열 수 없고, 연락처는 내 새 지문을 다시 확인해야 합니다.', '열쇠 재설정');
+  var yes = await ask(RESET_WARN, '열쇠 재설정');
   if (!yes) return;
   try {
     var r = await api('/api/identity/reset', { json: { displayName: $('idn-name').value.trim() || (S && S.displayName) || '' } });
     if (r.words) showWords(r.words);
     scheduleRefresh();
-  } catch (e) { say('idn-err', e.message); }
+  } catch (e) { say('idn-err', human(e)); }
 });
 
 /* ── 본 화면 손잡이 ────────────────────────────────────────────── */
@@ -983,7 +1043,7 @@ $('btn-invite').addEventListener('click', async function () {
     var r = await api('/api/invite', { method: 'POST' });
     say('invite-code', r.code || '');
     $('invite-dialog').showModal();
-  } catch (e) { say('sendmsg', e.message); }
+  } catch (e) { say('sendmsg', human(e)); }
 });
 
 $('btn-accept').addEventListener('click', function () {
@@ -1000,7 +1060,7 @@ $('accept-go').addEventListener('click', async function () {
     $('accept-dialog').close();
     scheduleRefresh();
     if (r.id) openPeer(r.id);
-  } catch (e) { say('accept-err', e.message); }
+  } catch (e) { say('accept-err', human(e)); }
   $('accept-go').disabled = false;
 });
 
@@ -1019,9 +1079,10 @@ $('msg').addEventListener('input', function () {
   el.style.height = Math.min(el.scrollHeight, 160) + 'px';
 });
 $('msg').addEventListener('keydown', function (e) {
-  // Escape는 건드리지 않는다(Face 서랍이 닫혀야 한다).
+  // 여기서 보는 키는 Enter 하나뿐이다(서랍을 닫는 키는 우리가 손대지 않는다).
   if (e.key !== 'Enter' || e.shiftKey || e.isComposing) return;
   e.preventDefault();
+  if (sending) return;   // 보내는 중에 또 누른 Enter는 버린다
   sendText();
 });
 
@@ -1042,18 +1103,22 @@ $('btn-settings').addEventListener('click', function () {
 
 $('set-mute').addEventListener('change', async function (e) {
   try { await api('/api/settings', { json: { notifyMuted: e.target.checked } }); scheduleRefresh(); }
-  catch (err) { say('set-err', err.message); }
+  catch (err) { say('set-err', human(err)); }
 });
 
 $('set-hub').addEventListener('click', async function () {
   say('set-err', '');
+  var url = $('set-url').value.trim();
+  var key = $('set-key').value.trim();
+  // 둘은 짝이다 — key 칸이 비었으면 서버 주소를 아예 보내지 않는다(반쪽만 보내면 400이 난다).
+  if (!key) { say('set-err', '서버를 바꾸려면 anon key도 함께 넣으세요.'); return; }
   var yes = await ask('서버 주소를 바꾸면 지금 계정에서 로그아웃됩니다. 계속할까요?', '저장하고 로그아웃');
   if (!yes) return;
   try {
-    await api('/api/settings', { json: { hubUrl: $('set-url').value.trim(), anonKey: $('set-key').value.trim() } });
+    await api('/api/settings', { json: { hubUrl: url, anonKey: key } });
     $('settings-dialog').close();
     scheduleRefresh();
-  } catch (e) { say('set-err', e.message); }
+  } catch (e) { say('set-err', human(e)); }
 });
 
 $('set-words').addEventListener('click', async function () {
@@ -1063,18 +1128,18 @@ $('set-words').addEventListener('click', async function () {
   try {
     var r = await api('/api/identity/words?confirm=1');
     showWords(r.words);
-  } catch (e) { say('set-err', e.message); }
+  } catch (e) { say('set-err', human(e)); }
 });
 
 $('set-reset').addEventListener('click', async function () {
   say('set-err', '');
-  var yes = await ask('이 PC의 열쇠를 새로 만듭니다. 예전에 받은 글은 다시 열 수 없고, 연락처마다 내 새 지문을 다시 확인해야 합니다.', '열쇠 재설정');
+  var yes = await ask(RESET_WARN, '열쇠 재설정');
   if (!yes) return;
   try {
     var r = await api('/api/identity/reset', { json: { displayName: (S && S.displayName) || '' } });
     if (r.words) showWords(r.words);
     scheduleRefresh();
-  } catch (e) { say('set-err', e.message); }
+  } catch (e) { say('set-err', human(e)); }
 });
 
 $('set-logout').addEventListener('click', async function () {
@@ -1082,7 +1147,7 @@ $('set-logout').addEventListener('click', async function () {
   var yes = await ask('이 PC에서 로그아웃합니다. 열쇠는 남아 있어 같은 계정으로 다시 들어오면 그대로 씁니다.', '로그아웃');
   if (!yes) return;
   try { await api('/api/logout', { method: 'POST' }); $('settings-dialog').close(); peer = null; items = []; autoPicked = false; scheduleRefresh(); }
-  catch (e) { say('set-err', e.message); }
+  catch (e) { say('set-err', human(e)); }
 });
 
 $('set-delete').addEventListener('click', async function () {
@@ -1090,7 +1155,7 @@ $('set-delete').addEventListener('click', async function () {
   var yes = await ask('메시지·열쇠·로그인 정보가 이 PC와 서버에서 지워집니다. 되돌릴 수 없습니다.', '탈퇴');
   if (!yes) return;
   try { await api('/api/delete-account', { method: 'POST' }); $('settings-dialog').close(); peer = null; items = []; autoPicked = false; scheduleRefresh(); }
-  catch (e) { say('set-err', e.message); }
+  catch (e) { say('set-err', human(e)); }
 });
 
 /* ── 실시간 ────────────────────────────────────────────────────── */
@@ -1106,7 +1171,7 @@ function connect() {
     if (d && d.item && d.peer === peer) {
       upsert(d.item);
       renderChat();
-      if (d.item.dir === 'in' && document.visibilityState === 'visible') readOpen();
+      if (d.item.dir === 'in' && document.visibilityState === 'visible') readOpen(true);
     }
     scheduleRefresh();
   });
@@ -1127,7 +1192,7 @@ function connect() {
     document.body.appendChild(h('main', { class: 'gate' },
       h('div', { class: 'card' },
         h('h1', { text: '화면을 열 수 없습니다' }),
-        h('p', { class: 'lead', text: e.message }),
+        h('p', { class: 'lead', text: human(e) }),
         h('p', { class: 'hint', text: '서랍을 닫았다 다시 열어 보세요.' }))));
     return;
   }

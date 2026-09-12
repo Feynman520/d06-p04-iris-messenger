@@ -13,6 +13,11 @@ const HTML = fs.readFileSync(FILE, 'utf8');
 
 const count = (s, needle) => s.split(needle).length - 1;
 
+// 주석을 걷어낸 스크립트 알맹이 — 주석 속 낱말이 검사에 걸리지 않게 한다.
+const JS = HTML.slice(HTML.indexOf('<script>'), HTML.indexOf('</script>'))
+  .replace(/\/\*[\s\S]*?\*\//g, '')   // /* … */ 통째로
+  .replace(/^\s*\/\/.*$/gm, '');      // 줄 전체가 // 인 것
+
 test('① 한 파일 안에 다 있고 크기가 200KB보다 작다', () => {
   const bytes = Buffer.byteLength(HTML, 'utf8');
   assert.ok(bytes > 0 && bytes < 200 * 1024, `panel.html = ${bytes} bytes`);
@@ -33,13 +38,17 @@ test('② 바깥으로 나가는 링크가 하나도 없다(오프라인에서�
   }
 });
 
-test('③ alert·confirm·prompt를 쓰지 않는다(서랍 안에서는 막힌다)', () => {
+test('③ alert·confirm·prompt를 쓰지 않고 Escape를 가로채지 않는다', () => {
   assert.equal(count(HTML, 'alert('), 0);
   assert.equal(count(HTML, 'confirm('), 0);
   assert.equal(count(HTML, 'prompt('), 0);
   assert.equal(count(HTML, 'window.open('), 0);
-  // Escape는 Face 서랍이 쓰는 키라 화면이 가로채지 않는다.
-  assert.equal(/Escape/.test(HTML.replace(/Escape는[^\n]*/g, '')), false, 'Escape를 키 처리로 쓰지 않는다');
+  // Escape는 Face 서랍이 닫히는 키다 — 코드(주석 제외)에 그 이름이 아예 없어야 한다.
+  assert.equal(/Escape/.test(JS), false, 'Escape를 키 처리에 쓰지 않는다');
+  assert.equal(/document\.addEventListener\(\s*'key(down|up|press)'/.test(JS), false, '문서 전체에 키 처리를 걸지 않는다');
+  // 키를 보는 곳은 입력칸의 Enter 하나뿐이다.
+  assert.equal(count(JS, "addEventListener('keydown'"), 1);
+  assert.ok(JS.includes("if (e.key !== 'Enter'"), 'Enter만 본다');
 });
 
 test('④ 미완성 흔적이 없다', () => {
@@ -84,7 +93,9 @@ test('⑧ 신뢰·안전 문구가 빠지지 않았다', () => {
   assert.ok(HTML.includes('코드의 뒤 4자와 상대의 지문이 맞는지 확인합니다.'));
   assert.ok(HTML.includes('이 PC의 열쇠가 계정의 열쇠와 다릅니다'));
   assert.ok(HTML.includes('다시 보내려면 파일을 다시 첨부해 보내세요'));
-  assert.ok(HTML.includes('파일이 너무 큽니다(10MB)'));
+  // 상한 숫자는 박아 두지 않고 state().limits.fileMax 에서 만들어 쓴다.
+  assert.ok(JS.includes("'파일이 너무 큽니다(' + Math.round(fileMax() / 1048576) + 'MB)'"));
+  assert.equal(HTML.includes('파일이 너무 큽니다(10MB)'), false, '10MB를 글자로 박아 두지 않는다');
   assert.ok(HTML.includes('메시지·열쇠·로그인 정보가 이 PC와 서버에서 지워집니다'));
   assert.ok(HTML.includes('저장하면 로그아웃됩니다'));
   assert.ok(HTML.includes('적어 두었습니다'), '백업 문구 확인 칸');
@@ -102,4 +113,58 @@ test('⑨ 상태는 /api/state 한 덩어리에서만 온다(다른 설정 파�
   for (const need of ['S.limits', 'S.riskyExt', 'S.theme', "'/api/state'"]) {
     assert.ok(HTML.includes(need), `${need} 를 state에서 읽는다`);
   }
+});
+
+test('⑩ 새 편지가 오면 낡은 unread를 보지 않고 곧장 읽음 처리한다', () => {
+  // 사건 처리기는 readOpen(true) — state의 안 읽은 수가 아직 갱신되기 전이라 첫 통을 놓치면 안 된다.
+  assert.ok(JS.includes("if (d.item.dir === 'in' && document.visibilityState === 'visible') readOpen(true);"));
+  assert.ok(JS.includes('async function readOpen(force)'));
+  assert.ok(JS.includes('if (!force && !by[peer]) return;'));
+});
+
+test('⑪ 열쇠가 어긋난 화면에는 물어보지 않는 열쇠 파괴 단추가 없다', () => {
+  // 새 열쇠 만들기는 재설정과 똑같이 이 PC의 옛 열쇠를 지운다 → keyMismatch면 감춘다.
+  assert.ok(JS.includes("$('idn-normal').hidden = !!S.keyMismatch;"));
+  assert.ok(JS.includes("$('idn-create').hidden = !!S.keyMismatch;"));
+  assert.ok(JS.includes("if (S.keyMismatch) $('idn-words-wrap').hidden = false;"));
+  // 재설정은 설정 쪽과 같은 확인 대화상자·같은 경고 문구를 쓴다(두 곳에서 ask(RESET_WARN…)).
+  assert.ok(HTML.includes("재설정하면 이 PC의 옛 편지는 다시 열 수 없고 연락처들에게 '열쇠 바뀜' 경고가 갑니다"));
+  assert.equal(count(JS, "ask(RESET_WARN, '열쇠 재설정')"), 2);
+});
+
+test('⑫ 서버의 영어 오류를 사람 말로 바꾼다', () => {
+  const pairs = [
+    ['bad email', '메일 주소 형식이 아닙니다'],
+    ['bad code', '코드 또는 링크 형식이 아닙니다'],
+    ['locked', '5회 틀려 잠겼습니다. 코드를 다시 받으세요'],
+    ['invalid or expired invite', '초대 코드가 틀렸거나 만료됐습니다'],
+    ['too many attempts, wait a minute', '시도가 너무 많습니다. 1분 뒤 다시 하세요'],
+    ['fingerprint mismatch', '지문이 맞지 않습니다. 코드를 다시 확인하세요(서버가 열쇠를 바꿔치기했을 수 있습니다)'],
+    ['blocked', '차단된 상대입니다'],
+    ['mismatch', '12단어가 이 계정의 열쇠와 다릅니다'],
+    ['display name required', '표시 이름을 넣으세요'],
+    ['bad hub url or key', '서버 주소 또는 키가 올바르지 않습니다'],
+    ['internal error', '내부 오류가 났습니다. 다시 시도하세요'],
+    ['Token has expired or is invalid', '코드가 만료됐거나 틀렸습니다'],
+  ];
+  for (const [en, ko] of pairs) assert.ok(JS.includes(ko), `${en} → ${ko} 가 없다`);
+  assert.ok(JS.includes("return '서버에 연결할 수 없습니다'"), '끊긴 전선');
+  assert.ok(JS.includes("msg.toLowerCase().indexOf('expired') >= 0"), 'expired가 든 말은 만료로');
+  assert.ok(JS.includes('  return msg;'), '모르는 말은 그대로 보여 준다');
+  // 사람에게 보이는 자리는 모두 human()을 지난다(.message를 곧장 그리는 곳이 없다).
+  assert.equal(/say\([^)]*\.message/.test(JS), false, 'say()에 영어 원문을 그대로 넣는 곳이 있다');
+  assert.equal(/text:\s*e\.message/.test(JS), false);
+  assert.equal(/fetchError = e\.message/.test(JS), false);
+  assert.equal(count(JS, '.message'), 3, 'message를 읽는 곳은 human() 한 줄과 api()의 전선 오류 한 줄뿐');
+  assert.ok(count(JS, 'human(e)') >= 15);
+});
+
+test('⑬ 보내는 중에는 두 번 보내지지 않고, 끝나면 입력칸으로 돌아온다', () => {
+  assert.ok(JS.includes('function lockSend(on)'));
+  assert.ok(JS.includes('if (sending) return;'), '보내는 중 Enter·재호출을 버린다');
+  assert.ok(JS.includes("if (!$('msg').disabled) $('msg').focus();"), '끝나면 입력칸에 초점을 돌려준다');
+  assert.ok(JS.includes('var ok = !why && !sending;'));
+  // 서버 주소는 anon key와 짝으로만 보낸다.
+  assert.ok(JS.includes("if (!key) { say('set-err', '서버를 바꾸려면 anon key도 함께 넣으세요.'); return; }"));
+  assert.ok(HTML.includes('placeholder="서버를 바꿀 때만 채웁니다"'));
 });
