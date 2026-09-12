@@ -144,6 +144,38 @@ test('Contacts.sync: 지문을 맞춰 본 적 없이 고정된 열쇠는 needsVe
   assert.equal(contacts.get('u2').needsVerify, false);
 });
 
+test('Contacts.respond(accept): 받은 요청을 수락한 쪽의 고정도 needsVerify 로 표시된다', async (t) => {
+  const mock = await startMock();
+  t.after(() => mock.close());
+  const stateDir = fssync.mkdtempSync(path.join(os.tmpdir(), 'iris-contacts-'));
+  const { contacts } = setupContacts(mock, stateDir);
+  await contacts.load();
+
+  // u2 가 내 초대 코드를 써서 요청해 온 상태 — u2 는 내 지문을 코드 뒤 4자로 봤지만
+  // 나는 u2 의 지문을 아직 한 번도 대조하지 않았다.
+  const otherKeys = deriveKeyPair(generateEntropy());
+  const otherPub = b64.enc(otherKeys.publicRaw);
+  mock.store.contacts.push({ user_a: 'u1', user_b: 'u2', status: 'pending', requested_by: 'u2', blocked_by: null });
+  mock.store.profiles.push({ id: 'u2', display_name: '보라', public_key: otherPub, key_version: 1 });
+
+  await contacts.respond('u2', 'accept');
+  let entry = contacts.get('u2');
+  assert.equal(entry.status, 'accepted');
+  assert.equal(entry.needsVerify, true, '수락한 쪽도 지문을 확인하기 전이다');
+  assert.deepEqual(Buffer.from(contacts.publicKeyOf('u2')), Buffer.from(otherKeys.publicRaw), '편지는 열 수 있어야 한다');
+  const onDisk = JSON.parse(fssync.readFileSync(path.join(stateDir, 'contacts.json'), 'utf8'));
+  assert.equal(onDisk.pins.u2.pinnedBy, 'accept');
+  assert.equal(onDisk.pins.u2.needsVerify, true);
+
+  // 지문을 직접 대조한 뒤 "새 지문 확인"을 누르면 표식이 사라진다.
+  await contacts.acceptKeyChange('u2');
+  entry = contacts.get('u2');
+  assert.equal(entry.needsVerify, false);
+  assert.deepEqual(Buffer.from(contacts.publicKeyOf('u2')), Buffer.from(otherKeys.publicRaw));
+  await contacts.sync();
+  assert.equal(contacts.get('u2').needsVerify, false, '다시 맞춰 봐도 표식이 되살아나지 않는다');
+});
+
 test('Contacts.acceptInvite: server accept_invite invalid/rate_limited/blocked → throws, no pin', async (t) => {
   const mock = await startMock();
   t.after(() => mock.close());

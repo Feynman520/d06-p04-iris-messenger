@@ -20,7 +20,15 @@ test('Session: OTP login lifecycle, lockout, persistence, logout, delete', async
   const email = 'a@b.com';
 
   const supa = new Supa({ url: mock.url, anonKey: 'anon-key' });
-  const session = new Session({ stateDir, supa, dpapi: dpapiPlain });
+  // App 이 넣어 주는 것과 같은 짜임새: 이 계정의 폴더 + 아직 이사하지 않은 뿌리의 옛 파일들.
+  const session = new Session({
+    stateDir,
+    supa,
+    dpapi: dpapiPlain,
+    accountPaths: (uid) => (uid
+      ? [path.join(stateDir, 'accounts', String(uid)), ...['keys.bin', 'contacts.json', 'messages', 'files', 'outbox.json'].map((n) => path.join(stateDir, n))]
+      : []),
+  });
 
   // ① 로그인 전 load() false
   assert.equal(await session.load(), false);
@@ -61,12 +69,40 @@ test('Session: OTP login lifecycle, lockout, persistence, logout, delete', async
   assert.equal(fssync.existsSync(authFile), false);
   assert.equal(await session2.load(), false);
 
-  // ⑦ deleteAccount → stateDir 비어 있음 (미리 넣어 둔 messages/x.ndjson 포함 삭제)
-  await fs.mkdir(path.join(stateDir, 'messages'), { recursive: true });
-  await fs.writeFile(path.join(stateDir, 'messages', 'x.ndjson'), 'line\n');
+  // ⑦ deleteAccount → 이 계정의 것만 지운다(다른 계정 폴더·이 PC의 설정은 그대로)
+  await session.requestCode(email);
+  await session.verifyCode(email, '123456');          // 다시 로그인해 auth.bin 을 되살린다
+  const mine = path.join(stateDir, 'accounts', 'u1');
+  const other = path.join(stateDir, 'accounts', 'u9');
+  await fs.mkdir(path.join(mine, 'messages'), { recursive: true });
+  await fs.writeFile(path.join(mine, 'messages', 'x.ndjson'), 'line\n');
+  await fs.mkdir(other, { recursive: true });
+  await fs.writeFile(path.join(other, 'x.ndjson'), 'line\n');
+  await fs.writeFile(path.join(stateDir, 'settings.json'), '{"notifyMuted":true}', 'utf8');
+  await fs.writeFile(path.join(stateDir, 'contacts.json'), '{"pins":{}}', 'utf8'); // 아직 이사하지 않은 옛 파일
+
   await session.deleteAccount();
-  const remaining = await fs.readdir(stateDir);
-  assert.deepEqual(remaining, []);
+  assert.equal(fssync.existsSync(authFile), false, '로그인 정보는 사라진다');
+  assert.equal(fssync.existsSync(mine), false, '내 계정 폴더는 사라진다');
+  assert.equal(fssync.existsSync(path.join(stateDir, 'contacts.json')), false, '뿌리에 남아 있던 옛 파일도 사라진다');
+  assert.equal(fssync.existsSync(other), true, '다른 계정 폴더는 그대로 남는다');
+  assert.equal(fssync.existsSync(path.join(stateDir, 'settings.json')), true, '이 PC의 설정은 그대로 남는다');
+});
+
+test('Session: accountPaths 를 주지 않으면 탈퇴가 auth.bin 말고는 아무것도 지우지 않는다', async (t) => {
+  const mock = await startMock();
+  t.after(() => mock.close());
+  const stateDir = fssync.mkdtempSync(path.join(os.tmpdir(), 'iris-session-'));
+  t.after(() => fssync.rmSync(stateDir, { recursive: true, force: true }));
+  const supa = new Supa({ url: mock.url, anonKey: 'anon-key' });
+  const session = new Session({ stateDir, supa, dpapi: dpapiPlain }); // accountPaths 없음
+  await session.requestCode('a@b.com');
+  await session.verifyCode('a@b.com', '123456');
+  await fs.writeFile(path.join(stateDir, 'keep.txt'), 'x', 'utf8');
+
+  await session.deleteAccount();
+  assert.equal(fssync.existsSync(path.join(stateDir, 'auth.bin')), false);
+  assert.equal(fssync.existsSync(path.join(stateDir, 'keep.txt')), true, '짐작해서 지우지 않는다');
 });
 
 test('Session: bad-shaped code (not 6-digit, not a link) is rejected without calling the server', async (t) => {

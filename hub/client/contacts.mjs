@@ -124,8 +124,11 @@ export class Contacts {
         const p = rows?.[0];
         live = p ? { displayName: p.display_name, publicKey: p.public_key, keyVersion: p.key_version } : null;
       }
+      // 받은 요청을 수락하는 쪽은 아직 상대의 지문을 대조한 적이 없다 — 초대 코드의 뒤 4자는
+      // 요청한 쪽이 내 지문을 확인한 것이지 그 반대가 아니다. 그래서 sync() 고정과 똑같이
+      // "재확인 필요" 표식을 달아 둔다(편지를 열려면 열쇠는 있어야 하므로 고정 자체는 한다).
       if (live) {
-        this.#pins[id] = { ...live, pinnedAt: Date.now() };
+        this.#pins[id] = { ...live, pinnedAt: Date.now(), pinnedBy: 'accept', needsVerify: true };
         await this.#persist();
       }
       this.#state.set(id, { status: 'accepted', requestedByMe: false, keyChanged: false, live });

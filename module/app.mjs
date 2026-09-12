@@ -101,7 +101,16 @@ export class App {
       return this;
     }
 
-    this.session = new Session({ stateDir, supa: this.supa, dpapi: this.dpapi });
+    this.session = new Session({
+      stateDir,
+      supa: this.supa,
+      dpapi: this.dpapi,
+      // 탈퇴가 지울 "이 계정만의" 자리: 계정 폴더 하나 + (아직 이사하지 않았다면) 뿌리의 옛 파일들.
+      // 다른 계정의 폴더와 settings.json 은 여기에 들어가지 않는다.
+      accountPaths: (uid) => (uid
+        ? [path.join(stateDir, 'accounts', String(uid)), ...LEGACY_NAMES.map((n) => path.join(stateDir, n))]
+        : []),
+    });
 
     // 여기까지는 전부 로컬 파일 읽기다 — 로그인 전에는 네트워크를 만지지 않는다.
     try { await this.session.load(); } catch (e) { this.log(`session.load: ${e.message}`); }
@@ -322,12 +331,15 @@ export class App {
   async deleteAccount() {
     this.#needSession();
     this.messages?.stop();
-    const hub = this.settings.hub; // 내가 고른 허브 주소는 계정과 함께 지우지 않는다
-    await this.session.deleteAccount(); // 서버 rpc + state 폴더 비우기
+    await this.session.deleteAccount(); // 서버 rpc + 로그인 정보 + 이 계정 폴더만
     try { await this.session.logout(); } catch (e) { this.log(`logout after delete: ${e.message}`); }
-    this.settings = hub ? { hub } : {};
-    if (hub) await writeJson(path.join(this.stateDir, 'settings.json'), this.settings);
-    await this.init({ stateDir: this.stateDir }); // 빈 폴더에서 처음부터
+    // settings.json 은 계정이 아니라 이 PC의 것이다(허브 주소·알림 설정) — 지우지 않고
+    // 떠난 계정에만 딸린 표시 이름만 턴다. 다른 계정의 폴더는 그대로 남아 있다.
+    const { displayName, ...rest } = this.settings;
+    this.settings = rest;
+    this.displayName = null;
+    await writeJson(path.join(this.stateDir, 'settings.json'), this.settings);
+    await this.init({ stateDir: this.stateDir }); // 빈 계정에서 처음부터
     this.#emitState();
     return { stage: this.stage() };
   }

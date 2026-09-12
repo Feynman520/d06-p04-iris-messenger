@@ -249,18 +249,29 @@ test('⑫ 로그아웃하면 stage "out"으로 돌아가고 세션 파일이 사
   assert.equal(fssync.existsSync(w.acct('u1', 'keys.bin')), true, '열쇠는 남는다(같은 계정으로 다시 로그인)');
 });
 
-test('⑬ 탈퇴하면 서버 행과 로컬 흔적이 모두 사라지고 stage "out"으로 돌아간다', async (t) => {
+test('⑬ 탈퇴는 내 계정의 것만 지운다(다른 계정 폴더·이 PC의 설정은 그대로)', async (t) => {
   const w = await world(t);
   await signIn(w);
   assert.equal(w.fake.profiles.length, 1);
   assert.equal(fssync.existsSync(w.acct('u1', 'keys.bin')), true);
+  await w.json('/api/settings', { method: 'POST', body: { notifyMuted: true } });
+
+  // 같은 PC를 쓰는 다른 계정의 편지 한 통
+  fssync.mkdirSync(w.acct('u9', 'messages'), { recursive: true });
+  fssync.writeFileSync(w.acct('u9', 'messages', 'x.ndjson'), 'line\n');
 
   const r = await w.json('/api/delete-account', { method: 'POST' });
   assert.equal(r.status, 200);
-  assert.equal((await w.state()).stage, 'out');
+  const s = await w.state();
+  assert.equal(s.stage, 'out');
+  assert.equal(s.displayName, null, '떠난 계정의 표시 이름은 남기지 않는다');
   assert.equal(w.fake.profiles.length, 0);
   assert.equal(fssync.existsSync(path.join(w.dir, 'auth.bin')), false);
-  assert.equal(fssync.existsSync(w.acct('u1', 'keys.bin')), false);
+  assert.equal(fssync.existsSync(w.acct('u1')), false, '내 계정 폴더는 통째로 사라진다');
+  assert.equal(fssync.existsSync(w.acct('u9', 'messages', 'x.ndjson')), true, '다른 계정의 편지는 그대로');
+  const saved = JSON.parse(fssync.readFileSync(path.join(w.dir, 'settings.json'), 'utf8'));
+  assert.equal(saved.notifyMuted, true, '이 PC의 설정은 그대로');
+  assert.equal(saved.displayName, undefined);
 });
 
 test('⑭ 허브 스키마가 모듈보다 새로우면 hubMismatch = module_old', async (t) => {

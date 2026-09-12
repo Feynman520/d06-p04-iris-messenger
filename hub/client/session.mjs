@@ -14,13 +14,17 @@ export class Session {
   #stateDir;
   #supa;
   #dpapi;
+  #accountPaths;
   #failCount = 0;
   #lastWrite = Promise.resolve();
 
-  constructor({ stateDir, supa, dpapi = defaultDpapi }) {
+  // accountPaths(uid) → 탈퇴 때 지울 "이 계정만의" 경로 목록. 폴더 짜임새를 아는 쪽(App)이 넣어 준다.
+  // 넣지 않으면 탈퇴는 로그인 정보(auth.bin)만 지운다 — 남의 계정 폴더를 짐작해서 지우지 않는다.
+  constructor({ stateDir, supa, dpapi = defaultDpapi, accountPaths = null }) {
     this.#stateDir = stateDir;
     this.#supa = supa;
     this.#dpapi = dpapi;
+    this.#accountPaths = accountPaths;
     supa.onSession((s) => {
       this.#lastWrite = this.#persist(s).catch(() => {});
     });
@@ -105,14 +109,17 @@ export class Session {
     await fs.rm(this.#authFile, { force: true });
   }
 
+  // 탈퇴: 서버에서 계정을 지우고 이 PC에서는 **이 계정의 것만** 지운다.
+  // 지우는 것 = 로그인 정보(auth.bin) + accountPaths(uid) 가 알려 준 이 계정의 폴더·파일.
+  // 건드리지 않는 것 = 다른 계정의 폴더, 이 PC의 설정(settings.json).
   async deleteAccount() {
+    const uid = this.#supa.session?.user?.id ?? null; // rpc 뒤에는 세션이 사라질 수 있어 먼저 집어 둔다
     await this.#supa.rpc('delete_me');
-    let entries;
-    try {
-      entries = await fs.readdir(this.#stateDir);
-    } catch {
-      return;
+    await this.#lastWrite;
+    await fs.rm(this.#authFile, { force: true });
+    const targets = typeof this.#accountPaths === 'function' ? (this.#accountPaths(uid) || []) : [];
+    for (const p of targets) {
+      await fs.rm(p, { recursive: true, force: true });
     }
-    await Promise.all(entries.map((name) => fs.rm(path.join(this.#stateDir, name), { recursive: true, force: true })));
   }
 }
