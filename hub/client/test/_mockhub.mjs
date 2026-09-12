@@ -18,9 +18,13 @@ function sendJson(res, status, obj) {
 }
 
 export async function startMock() {
-  const calls = { otp: [], verify: [], refresh: [], insert: [], rpc: [], upload: [], profilePatch: [] };
+  const calls = { otp: [], verify: [], refresh: [], insert: [], rpc: [], upload: [], profilePatch: [], invite: [] };
   const store = new Map(); // bucket/path -> Buffer
   store.profile = null; // single fake profiles row (id 'u1')
+  store.profiles = []; // other users' profiles rows, for GET id=in.(...) (contacts.mjs sync)
+  store.contacts = []; // fake contacts rows: { user_a, user_b, status, requested_by, blocked_by }
+  store.invites = new Map(); // code -> { owner_id, display_name, public_key, key_version }
+  store.acceptStatus = 'pending'; // forced accept_invite() status: pending|accepted|rate_limited|invalid|blocked
 
   const server = createServer(async (req, res) => {
     const u = new URL(req.url, 'http://localhost');
@@ -83,11 +87,84 @@ export async function startMock() {
       return sendJson(res, 200, {});
     }
 
+    // ---- contacts.mjs: 연락처 4종 rpc + contacts/profiles 조회 흉내 ----
+
+    if (method === 'POST' && path === '/rest/v1/rpc/create_invite') {
+      calls.invite.push({ fn: 'create_invite', args: body });
+      const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+      let code = '';
+      for (let i = 0; i < 8; i++) code += alphabet[Math.floor(Math.random() * alphabet.length)];
+      store.invites.set(code, {
+        owner_id: 'u1',
+        display_name: store.profile?.display_name ?? null,
+        public_key: store.profile?.public_key ?? null,
+        key_version: store.profile?.key_version ?? null,
+      });
+      return sendJson(res, 200, code);
+    }
+
+    if (method === 'POST' && path === '/rest/v1/rpc/lookup_invite') {
+      calls.invite.push({ fn: 'lookup_invite', args: body });
+      const code = String(body?.p_code || '').toUpperCase();
+      const inv = store.invites.get(code);
+      if (!inv) return sendJson(res, 200, []);
+      return sendJson(res, 200, [{ owner_id: inv.owner_id, display_name: inv.display_name, public_key: inv.public_key, key_version: inv.key_version }]);
+    }
+
+    if (method === 'POST' && path === '/rest/v1/rpc/accept_invite') {
+      calls.invite.push({ fn: 'accept_invite', args: body });
+      const code = String(body?.p_code || '').toUpperCase();
+      const inv = store.invites.get(code);
+      const status = store.acceptStatus || 'pending';
+      const me = 'u1';
+      if (status !== 'pending' && status !== 'accepted') {
+        return sendJson(res, 200, [{ other_id: inv?.owner_id ?? null, status }]);
+      }
+      if (!inv) return sendJson(res, 200, [{ other_id: null, status: 'invalid' }]);
+      const a = me < inv.owner_id ? me : inv.owner_id;
+      const b = me < inv.owner_id ? inv.owner_id : me;
+      if (!store.contacts.some((r) => r.user_a === a && r.user_b === b)) {
+        store.contacts.push({ user_a: a, user_b: b, status: 'pending', requested_by: me, blocked_by: null });
+      }
+      return sendJson(res, 200, [{ other_id: inv.owner_id, status }]);
+    }
+
+    if (method === 'POST' && path === '/rest/v1/rpc/respond_contact') {
+      calls.invite.push({ fn: 'respond_contact', args: body });
+      const me = 'u1';
+      const other = body?.p_other;
+      const action = body?.p_action;
+      const a = me < other ? me : other;
+      const b = me < other ? other : me;
+      const idx = store.contacts.findIndex((r) => r.user_a === a && r.user_b === b);
+      if (idx < 0) return sendJson(res, 400, { message: 'no such contact' });
+      const row = store.contacts[idx];
+      let result;
+      if (action === 'accept') { row.status = 'accepted'; result = 'accepted'; }
+      else if (action === 'reject') { store.contacts.splice(idx, 1); result = 'deleted'; }
+      else if (action === 'remove') { store.contacts.splice(idx, 1); result = 'deleted'; }
+      else if (action === 'block') { row.status = 'blocked'; row.blocked_by = me; result = 'blocked'; }
+      else if (action === 'unblock') { row.status = 'accepted'; row.blocked_by = null; result = 'accepted'; }
+      else return sendJson(res, 400, { message: 'unknown action' });
+      return sendJson(res, 200, result);
+    }
+
+    if (method === 'GET' && path === '/rest/v1/contacts') {
+      return sendJson(res, 200, store.contacts);
+    }
+
     if (method === 'GET' && path === '/rest/v1/profiles') {
-      const idParam = u.searchParams.get('id') || ''; // 'eq.u1'
+      const idParam = u.searchParams.get('id') || ''; // 'eq.u1' or 'in.(u2,u3)'
+      const selectParam = u.searchParams.get('select');
+      if (idParam.startsWith('in.(')) {
+        const ids = idParam.slice(4, -1).split(',').filter(Boolean);
+        const fields = selectParam ? selectParam.split(',') : null;
+        const rows = store.profiles.filter((p) => ids.includes(p.id));
+        const out = fields ? rows.map((p) => { const r = {}; for (const f of fields) r[f] = p[f]; return r; }) : rows;
+        return sendJson(res, 200, out);
+      }
       const id = idParam.startsWith('eq.') ? idParam.slice(3) : null;
       if (!store.profile || store.profile.id !== id) return sendJson(res, 200, []);
-      const selectParam = u.searchParams.get('select');
       const fields = selectParam ? selectParam.split(',') : Object.keys(store.profile);
       const row = {};
       for (const f of fields) row[f] = store.profile[f];
