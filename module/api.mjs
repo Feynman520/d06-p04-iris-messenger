@@ -67,7 +67,7 @@ async function readJsonBody(req) {
 
 const defaultLog = (m) => { try { process.stderr.write(`[messenger] ${m}\n`); } catch { /* noop */ } };
 
-export function createHandler({ app, token, panelHtml = '', out = () => {}, log = defaultLog }) {
+export function createHandler({ app, token, panelHtml = '', privacyHtml = '', out = () => {}, log = defaultLog }) {
   const need = (thing) => { if (!thing) throw badRequest('hub not configured'); return thing; };
 
   // 오류 → 응답. 사용자에게 뜻이 있는 말(SupaError·우리가 던진 Error)은 그대로 400으로 보여 주고,
@@ -86,6 +86,12 @@ export function createHandler({ app, token, panelHtml = '', out = () => {}, log 
     const seg = p.split('/').filter(Boolean); // ['api','messages','<peer>']
     const method = req.method;
 
+    // 처리방침 한 장(같은 문지기·CSP). 화면의 링크가 새 창으로 연다.
+    if (method === 'GET' && p === '/privacy') {
+      const body = Buffer.from(privacyHtml, 'utf8');
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Content-Length': body.length, 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer', 'Content-Security-Policy': CSP });
+      return res.end(body);
+    }
     if (method === 'GET' && p === '/') {
       const body = Buffer.from(panelHtml, 'utf8');
       res.writeHead(200, {
@@ -128,6 +134,10 @@ export function createHandler({ app, token, panelHtml = '', out = () => {}, log 
     if (method === 'POST' && p === '/api/identity/reset') {
       const { displayName } = await readJsonBody(req);
       return sendJson(res, 200, await app.resetIdentity({ displayName }));
+    }
+    if (method === 'POST' && p === '/api/identity/avatar') {
+      const { avatar } = await readJsonBody(req);
+      return sendJson(res, 200, await app.setAvatar(avatar ?? null));
     }
     if (method === 'POST' && p === '/api/identity/rename') {
       const { displayName } = await readJsonBody(req);

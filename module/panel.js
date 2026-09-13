@@ -47,7 +47,9 @@ var ERRORS = {
   'display name too long': '표시 이름이 너무 깁니다(40자까지)',
   'bad hub url or key': '서버 주소 또는 키가 올바르지 않습니다',
   'internal error': '내부 오류가 났습니다. 다시 시도하세요',
-  'Token has expired or is invalid': '인증번호가 만료됐거나 틀렸습니다'
+  'Token has expired or is invalid': '인증번호가 만료됐거나 틀렸습니다',
+  'bad avatar': '사진 형식이 맞지 않습니다',
+  'avatar too large': '사진이 너무 큽니다'
 };
 
 function human(e) {
@@ -125,6 +127,31 @@ function icon(name) {
   use.setAttribute('href', '#i-' + name);
   svg.appendChild(use);
   return svg;
+}
+
+// 아바타: 사진(data URL)이 있으면 그림, 없으면 이름 첫 글자. cls 로 크기 변형을 고른다.
+function avatarEl(name, avatar, cls) {
+  var el = h('span', { class: 'avatar' + (cls ? ' ' + cls : ''), 'aria-hidden': 'true' });
+  if (avatar && String(avatar).indexOf('data:image/jpeg;base64,') === 0) {
+    var img = h('img', { alt: '' });
+    img.src = avatar;
+    el.appendChild(img);
+  } else {
+    el.textContent = initial(name);
+  }
+  return el;
+}
+
+// 이미 있는 아바타 칸(왼쪽 줄의 나)을 채운다: 사진이면 그림 하나, 아니면 첫 글자.
+function fillAvatar(el, name, avatar) {
+  el.textContent = '';
+  if (avatar && String(avatar).indexOf('data:image/jpeg;base64,') === 0) {
+    var img = h('img', { alt: '' });
+    img.src = avatar;
+    el.appendChild(img);
+  } else {
+    el.textContent = initial(name);
+  }
 }
 
 function say(id, msg) { var el = $(id); if (el) el.textContent = msg || ''; }
@@ -233,6 +260,8 @@ function render() {
 
   say('me-name', S.displayName || '나');
   say('me-fp', S.fingerprint ? '지문 ' + S.fingerprint : '');
+  fillAvatar($('me-avatar'), S.displayName || '나', S.avatar);
+  if (!$('settings-page').hidden) paintSettings();
   paintConn();
   paintHub();
   // 서랍을 열면 곧바로 읽을 것이 보이도록 첫 수락된 연락처 하나만 열어 준다(처음 한 번).
@@ -285,7 +314,7 @@ function renderContacts() {
       class: 'contact', type: 'button', 'aria-current': peer === c.id ? 'true' : 'false',
       onclick: function () { openPeer(c.id); }
     },
-      h('span', { class: 'avatar', 'aria-hidden': 'true', text: initial(c.displayName) }),
+      avatarEl(c.displayName, c.avatar),
       h('span', { class: 'txt' }, h('span', { class: 'nm', text: c.displayName || '이름 모름' }), sub),
       unread[c.id] ? h('span', { class: 'unread', text: String(unread[c.id]) }) : null
     );
@@ -306,6 +335,7 @@ function renderPeerbar() {
   }
   var fp = c.fingerprint || '········';
   var who = h('div', { class: 'who' },
+    avatarEl(c.displayName, c.avatar),
     h('h2', { text: c.displayName || '이름 모름' }),
     h('span', { class: 'chip', title: '상대의 열쇠 지문' }, document.createTextNode(fp.slice(0, 4)), h('b', { text: fp.slice(4) })),
     h('span', { class: 'verify', text: '상대와 직접 대조하세요. 이름은 흉내 낼 수 있지만 지문은 못 합니다.' })
@@ -778,16 +808,85 @@ $('msg').addEventListener('keydown', function (e) {
 document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'visible') readOpen(); });
 
 /* ── 설정 ──────────────────────────────────────────────────────── */
-$('btn-settings').addEventListener('click', function () {
-  say('set-err', '');
+// 설정은 대화 영역을 덮는 한 장. 값은 state 에서 채우고, 열려 있는 동안 state 가 바뀌면 다시 채운다(이름 칸은 편집 중이면 건드리지 않는다).
+function paintSettings() {
   say('set-email', (S && S.email) || '—');
   say('set-fp', (S && S.fingerprint) || '—');
-  $('set-name').value = (S && S.displayName) || '';
-  say('set-version', (S && S.version) || '—');
+  if (document.activeElement !== $('set-name')) { $('set-name').value = (S && S.displayName) || ''; $('set-rename').hidden = true; }
+  say('set-version', 'v' + ((S && S.version) || '—'));
   $('set-mute').checked = !(S && S.notifyMuted);   // 스위치는 "알림 켜짐"을 뜻한다
+  // 설정의 큰 아바타는 단추 안에 그림·글자·카메라 표가 미리 들어 있다 — 통째로 비우지 않고 둘만 바꾼다.
+  var av = S && S.avatar && String(S.avatar).indexOf('data:image/jpeg;base64,') === 0 ? S.avatar : null;
+  if (av) $('set-avatar-img').src = av; else $('set-avatar-img').removeAttribute('src');
+  $('set-avatar-img').hidden = !av;
+  $('set-avatar-ini').hidden = !!av;
+  $('set-avatar-ini').textContent = initial((S && S.displayName) || '나');
+  $('set-avatar-remove').hidden = !av;
+}
+
+function openSettings() {
+  say('set-err', '');
+  paintSettings();
   $('set-url').value = (S && S.hub && S.hub.url) || '';
   $('set-key').value = '';
-  $('settings-dialog').showModal();
+  $('settings-page').hidden = false;
+  $('set-back').focus();
+}
+
+function closeSettings() {
+  closeMenus();
+  $('settings-page').hidden = true;
+  if (!$('msg').disabled) $('msg').focus();
+}
+
+$('btn-settings').addEventListener('click', function () { if ($('settings-page').hidden) openSettings(); else closeSettings(); });
+$('set-back').addEventListener('click', closeSettings);
+$('set-name').addEventListener('input', function () { $('set-rename').hidden = $('set-name').value.trim() === ((S && S.displayName) || ''); });
+
+/* ── 프로필 사진: PC 안에서 96×96 JPEG 로 줄여(≤ 24KB) 서버 profiles 에 넣는다 ── */
+var AVATAR_PX = 96;
+var AVATAR_BYTES = 24 * 1024;
+
+function shrinkAvatar(file) {
+  return new Promise(function (resolve, reject) {
+    var url = URL.createObjectURL(file);
+    var img = new Image();
+    img.onload = function () {
+      URL.revokeObjectURL(url);
+      var c = document.createElement('canvas');
+      c.width = AVATAR_PX; c.height = AVATAR_PX;
+      var ctx = c.getContext('2d');
+      var side = Math.min(img.naturalWidth, img.naturalHeight);
+      var sx = (img.naturalWidth - side) / 2, sy = (img.naturalHeight - side) / 2;   // 가운데 정사각형으로 자른다
+      ctx.drawImage(img, sx, sy, side, side, 0, 0, AVATAR_PX, AVATAR_PX);
+      var q = 0.86, out = c.toDataURL('image/jpeg', q);
+      while (out.length > AVATAR_BYTES && q > 0.3) { q -= 0.1; out = c.toDataURL('image/jpeg', q); }
+      if (out.indexOf('data:image/jpeg;base64,') !== 0 || out.length > AVATAR_BYTES) reject(new Error('사진을 줄이지 못했습니다'));
+      else resolve(out);
+    };
+    img.onerror = function () { URL.revokeObjectURL(url); reject(new Error('그림 파일이 아닙니다')); };
+    img.src = url;
+  });
+}
+
+$('set-avatar').addEventListener('click', function () { toggleMenu($('set-avatar'), $('menu-avatar')); });
+$('set-avatar-pick').addEventListener('click', function () { closeMenus(); $('avatar-input').click(); });
+$('avatar-input').addEventListener('change', async function (e) {
+  var f = e.target.files && e.target.files[0];
+  e.target.value = '';
+  if (!f) return;
+  say('set-err', '');
+  try {
+    var dataUrl = await shrinkAvatar(f);
+    await api('/api/identity/avatar', { json: { avatar: dataUrl } });
+    scheduleRefresh();
+  } catch (err) { say('set-err', human(err)); }
+});
+$('set-avatar-remove').addEventListener('click', async function () {
+  closeMenus();
+  say('set-err', '');
+  try { await api('/api/identity/avatar', { json: { avatar: null } }); scheduleRefresh(); }
+  catch (err) { say('set-err', human(err)); }
 });
 
 $('set-mute').addEventListener('change', async function (e) {
@@ -800,7 +899,8 @@ $('set-rename').addEventListener('click', async function () {
   $('set-rename').disabled = true;
   try {
     await api('/api/identity/rename', { json: { displayName: $('set-name').value.trim() } });
-    say('set-err', '바꿨습니다');
+    say('set-err', '이름을 바꿨습니다');
+    $('set-rename').hidden = true;
     scheduleRefresh();
   } catch (e) { say('set-err', human(e)); }
   $('set-rename').disabled = false;
@@ -816,7 +916,7 @@ $('set-hub').addEventListener('click', async function () {
   if (!yes) return;
   try {
     await api('/api/settings', { json: { hubUrl: url, anonKey: key } });
-    $('settings-dialog').close();
+    closeSettings();
     scheduleRefresh();
   } catch (e) { say('set-err', human(e)); }
 });
@@ -846,7 +946,7 @@ $('set-logout').addEventListener('click', async function () {
   say('set-err', '');
   var yes = await ask('이 PC에서 로그아웃합니다. 열쇠는 남아 있어 같은 계정으로 다시 들어오면 그대로 씁니다.', '로그아웃');
   if (!yes) return;
-  try { await api('/api/logout', { method: 'POST' }); $('settings-dialog').close(); peer = null; items = []; autoPicked = false; scheduleRefresh(); }
+  try { await api('/api/logout', { method: 'POST' }); closeSettings(); peer = null; items = []; autoPicked = false; scheduleRefresh(); }
   catch (e) { say('set-err', human(e)); }
 });
 
@@ -854,7 +954,7 @@ $('set-delete').addEventListener('click', async function () {
   say('set-err', '');
   var yes = await ask('메시지·열쇠·로그인 정보가 이 PC와 서버에서 지워집니다. 되돌릴 수 없습니다.', '탈퇴');
   if (!yes) return;
-  try { await api('/api/delete-account', { method: 'POST' }); $('settings-dialog').close(); peer = null; items = []; autoPicked = false; scheduleRefresh(); }
+  try { await api('/api/delete-account', { method: 'POST' }); closeSettings(); peer = null; items = []; autoPicked = false; scheduleRefresh(); }
   catch (e) { say('set-err', human(e)); }
 });
 
@@ -896,6 +996,7 @@ function connect() {
         h('p', { class: 'hint', text: '서랍을 닫았다 다시 열어 보세요.' }))));
     return;
   }
+  $('link-privacy').href = '/privacy?t=' + encodeURIComponent(T);   // 같은 문지기를 지나는 한 장
   render();
   connect();
 }());

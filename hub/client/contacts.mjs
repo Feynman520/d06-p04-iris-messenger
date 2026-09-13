@@ -69,6 +69,8 @@ export class Contacts {
       // 초대 코드로 지문을 맞춰 본 적 없이 sync()가 먼저 고정한 열쇠 — 화면이 "지문 재확인 필요"로 표시한다.
       needsVerify: !!pin?.needsVerify,
       requestedByMe: st?.requestedByMe ?? false,
+      // 사진은 고정(pin) 대상이 아니다(보안 값이 아님) — 서버가 지금 주는 값만 보여 준다.
+      avatar: st?.live?.avatar ?? null,
     };
   }
 
@@ -120,9 +122,9 @@ export class Contacts {
     if (action === 'accept') {
       let live = this.#state.get(id)?.live ?? null;
       if (!live) {
-        const rows = await this.#supa.select('profiles', `select=id,display_name,public_key,key_version&id=in.(${id})`);
+        const rows = await this.#supa.select('profiles', `select=id,display_name,public_key,key_version,avatar&id=in.(${id})`);
         const p = rows?.[0];
-        live = p ? { displayName: p.display_name, publicKey: p.public_key, keyVersion: p.key_version } : null;
+        live = p ? { displayName: p.display_name, publicKey: p.public_key, keyVersion: p.key_version, avatar: p.avatar ?? null } : null;
       }
       // 받은 요청을 수락하는 쪽은 아직 상대의 지문을 대조한 적이 없다 — 초대 코드의 뒤 4자는
       // 요청한 쪽이 내 지문을 확인한 것이지 그 반대가 아니다. 그래서 sync() 고정과 똑같이
@@ -153,7 +155,7 @@ export class Contacts {
     const otherIds = mine.map((r) => (r.user_a === meId ? r.user_b : r.user_a));
     let profiles = [];
     if (otherIds.length) {
-      profiles = (await this.#supa.select('profiles', `select=id,display_name,public_key,key_version&id=in.(${otherIds.join(',')})`)) || [];
+      profiles = (await this.#supa.select('profiles', `select=id,display_name,public_key,key_version,avatar&id=in.(${otherIds.join(',')})`)) || [];
     }
     const byId = new Map(profiles.map((p) => [p.id, p]));
     let dirty = false;
@@ -165,7 +167,7 @@ export class Contacts {
       else if (row.status === 'blocked') status = row.blocked_by === meId ? 'blocked_by_me' : 'blocked_me';
       else status = row.status;
       const p = byId.get(other);
-      const live = p ? { displayName: p.display_name, publicKey: p.public_key, keyVersion: p.key_version } : (this.#state.get(other)?.live ?? null);
+      const live = p ? { displayName: p.display_name, publicKey: p.public_key, keyVersion: p.key_version, avatar: p.avatar ?? null } : (this.#state.get(other)?.live ?? null);
       const pin = this.#pins[other];
       let keyChanged = false;
       if (pin && p) keyChanged = pin.publicKey !== p.public_key || pin.keyVersion !== p.key_version;

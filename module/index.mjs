@@ -21,6 +21,8 @@ const out = (o) => { try { process.stdout.write(`${JSON.stringify(o)}\n`); } cat
 const logErr = (m) => { try { process.stderr.write(`[messenger] ${m}\n`); } catch { /* noop */ } };
 
 let panelHtml = PLACEHOLDER;
+let privacyHtml = PLACEHOLDER;
+try { privacyHtml = fs.readFileSync(path.join(HERE, 'privacy.html'), 'utf8'); } catch (e) { logErr(`privacy: ${e?.message || e}`); }
 try { panelHtml = loadPanel(HERE); } catch (e) { logErr(`panel: ${e?.message || e}`); /* 화면 파일이 없으면 자리만 지킨다 */ }
 
 const app = new App({ log: logErr });
@@ -65,7 +67,7 @@ async function onHello(m) {
   } catch (e) {
     logErr(`init: ${e.stack || e.message}`); // 초기화에 실패해도 화면은 띄워 사용자가 까닭을 본다
   }
-  server = http.createServer(createHandler({ app, token, panelHtml, out, log: logErr }));
+  server = http.createServer(createHandler({ app, token, panelHtml, privacyHtml, out, log: logErr }));
   server.on('clientError', (err, socket) => { logErr(`client: ${err.message}`); try { socket.destroy(); } catch { /* noop */ } });
   server.on('error', (err) => logErr(`server: ${err.message}`));
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));

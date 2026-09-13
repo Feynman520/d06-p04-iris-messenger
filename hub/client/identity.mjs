@@ -76,7 +76,7 @@ export class Identity {
 
   async fetchProfile() {
     const uid = this.#uid();
-    const rows = await this.#supa.select('profiles', `id=eq.${uid}&select=display_name,public_key,key_version`);
+    const rows = await this.#supa.select('profiles', `id=eq.${uid}&select=display_name,public_key,key_version,avatar`);
     return rows?.[0] ?? null;
   }
 
@@ -122,6 +122,12 @@ export class Identity {
   async rename(displayName) {
     const uid = this.#uid();
     await this.#supa.update('profiles', `id=eq.${uid}`, { display_name: displayName });
+  }
+
+  // 프로필 사진(data URL) 또는 null(지움). 모양·크기 검사는 App 이 한다.
+  async setAvatar(avatar) {
+    const uid = this.#uid();
+    await this.#supa.update('profiles', `id=eq.${uid}`, { avatar: avatar ?? null });
   }
 
   async mnemonic() {

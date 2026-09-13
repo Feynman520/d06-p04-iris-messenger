@@ -14,6 +14,7 @@ import { App } from '../app.mjs';
 import { createHandler } from '../api.mjs';
 import { FakeSupa } from './_fakesupa.mjs';
 
+const PRIVACY = '<!doctype html><meta charset="utf-8"><title>privacy</title><p>policy</p>';
 const PANEL = '<!doctype html><meta charset="utf-8"><title>IRIS Messenger</title><p>panel pending</p>';
 const TOKEN = 'deadbeefcafe0123';
 
@@ -25,7 +26,7 @@ async function world(t) {
   await app.init({ stateDir: dir });
   const sent = [];
   const logs = [];
-  const server = http.createServer(createHandler({ app, token: TOKEN, panelHtml: PANEL, out: (o) => sent.push(o), log: (m) => logs.push(m) }));
+  const server = http.createServer(createHandler({ app, token: TOKEN, panelHtml: PANEL, privacyHtml: PRIVACY, out: (o) => sent.push(o), log: (m) => logs.push(m) }));
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
   const base = `http://127.0.0.1:${server.address().port}`;
 
@@ -341,6 +342,45 @@ test('⑰ /api/identity/rename 은 이름만 바꾼다(열쇠·지문 그대로)
   // 40자는 통과한다(경계).
   const edge = await w.json('/api/identity/rename', { method: 'POST', body: { displayName: '나'.repeat(40) } });
   assert.equal(edge.status, 200);
+});
+
+test('⑰-2 /api/identity/avatar 는 JPEG data URL 만 받고(≤32KB), null 이면 지우며, 서버 profiles·상태·settings.json 이 같이 움직인다', async (t) => {
+  const w = await world(t);
+  await signIn(w);
+  const pic = 'data:image/jpeg;base64,' + Buffer.from('tiny-jpeg-bytes').toString('base64');
+
+  const ok = await w.json('/api/identity/avatar', { method: 'POST', body: { avatar: pic } });
+  assert.equal(ok.status, 200);
+  assert.equal(ok.body.avatar, pic);
+  assert.equal((await w.state()).avatar, pic);
+  assert.equal(w.fake.profiles[0].avatar, pic, '서버 profiles 도 따라간다');
+  assert.equal(w.fake.profiles.length, 1);
+  const saved = JSON.parse(fssync.readFileSync(path.join(w.dir, 'settings.json'), 'utf8'));
+  assert.equal(saved.avatar, pic, '다음 실행이 이어받도록 settings.json 에도 남는다(표시 이름과 같은 자리)');
+
+  const png = await w.json('/api/identity/avatar', { method: 'POST', body: { avatar: 'data:image/png;base64,AAAA' } });
+  assert.equal(png.status, 400);
+  assert.equal(png.body.error, 'bad avatar');
+  const big = await w.json('/api/identity/avatar', { method: 'POST', body: { avatar: 'data:image/jpeg;base64,' + 'A'.repeat(33 * 1024) } });
+  assert.equal(big.status, 400);
+  assert.equal(big.body.error, 'avatar too large');
+  assert.equal((await w.state()).avatar, pic, '거절된 요청은 사진을 건드리지 않는다');
+
+  const gone = await w.json('/api/identity/avatar', { method: 'POST', body: { avatar: null } });
+  assert.equal(gone.status, 200);
+  assert.equal(gone.body.avatar, null);
+  assert.equal((await w.state()).avatar, null);
+  assert.equal(w.fake.profiles[0].avatar, null);
+});
+
+test('⑰-3 /privacy 는 같은 문지기를 지나 처리방침 한 장을 내준다', async (t) => {
+  const w = await world(t);
+  assert.equal((await fetch(`${w.base}/privacy`)).status, 403, '토큰 없이는 403');
+  const r = await fetch(`${w.base}/privacy?t=${TOKEN}`);
+  assert.equal(r.status, 200);
+  assert.match(r.headers.get('content-type'), /text\/html/);
+  assert.ok(r.headers.get('content-security-policy'));
+  assert.equal(await r.text(), PRIVACY);
 });
 
 // ── 검토 지적 반영(fix wave 2, 2026-09-13) ─────────────────────────────────

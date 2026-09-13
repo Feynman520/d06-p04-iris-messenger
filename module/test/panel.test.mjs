@@ -83,15 +83,21 @@ test('④ 미완성 흔적이 없다', () => {
 test('⑤ 단계·본 화면의 필수 id가 모두 있다', () => {
   const ids = [
     'stage-nohub', 'stage-out', 'stage-code', 'stage-identity', 'stage-in',
-    'contacts', 'chat', 'composer', 'settings-dialog', 'words-dialog',
+    'contacts', 'chat', 'composer', 'settings-page', 'set-back', 'words-dialog',
     'invite-dialog', 'accept-dialog', 'confirm-dialog',
     'conn-dot', 'peerbar', 'file-input', 'count',
     'set-name', 'set-rename', 'idn-missing', 'idn-register',
     'btn-plus', 'menu-plus', 'btn-invite', 'btn-accept', 'btn-settings',
     'code-input', 'code-link', 'code-more', 'link-privacy',
+    'me-avatar', 'set-avatar', 'set-avatar-img', 'set-avatar-ini', 'menu-avatar', 'set-avatar-pick', 'set-avatar-remove', 'avatar-input',
+    'set-url', 'set-key', 'set-hub', 'set-words', 'set-mute', 'set-logout', 'set-reset', 'set-delete', 'set-version',
   ];
   for (const id of ids) assert.ok(HTML.includes(`id="${id}"`), `id="${id}" 가 없다`);
-  assert.equal(count(HTML, '<dialog id='), 5, '대화상자는 <dialog> 5개');
+  assert.equal(count(HTML, '<dialog id='), 4, '대화상자는 <dialog> 4개(설정은 한 장 화면)');
+  assert.equal(HTML.includes('settings-dialog'), false, '설정 팝업은 더 이상 없다');
+  // 제목은 영어 IRIS Messenger — 문 화면 4장 + 본 화면 왼쪽 줄.
+  assert.equal(count(HTML, '<span class="word">IRIS</span><span class="sub">Messenger</span>'), 5);
+  assert.ok(HTML.includes('<title>IRIS Messenger</title>'));
 });
 
 test('⑥ 서버와 이야기하는 창구는 api() 하나뿐이다', () => {
@@ -133,7 +139,13 @@ test('⑧ 신뢰·안전 문구가 빠지지 않았다', () => {
   assert.ok(HTML.includes('메시지·열쇠·로그인 정보가 이 PC와 서버에서 지워집니다'));
   assert.ok(HTML.includes('저장하면 로그아웃됩니다'));
   assert.ok(HTML.includes('적어 두었습니다'), '백업 문구 확인 칸');
-  assert.ok(HTML.includes('hub/server/처리방침.md'));
+  // 처리방침은 링크만 — 모듈이 같은 문지기로 내주는 /privacy 한 장을 새 창으로 연다(토큰은 시작 때 붙인다).
+  assert.ok(HTML.includes('<a id="link-privacy" href="/privacy" target="_blank" rel="noopener">처리방침 읽기</a>'));
+  assert.ok(JS.includes("$('link-privacy').href = '/privacy?t=' + encodeURIComponent(T);"));
+  assert.equal(HTML.includes('서버에는 암호문만 지납니다'), false, '삭제하기로 한 문장(2026-09-13)');
+  // 프로필 사진: PC 안에서 96×96 JPEG 로 줄여 보내고, 서버 상한(32KB)보다 작은 24KB 를 지킨다.
+  assert.ok(JS.includes('var AVATAR_PX = 96;') && JS.includes('var AVATAR_BYTES = 24 * 1024;'));
+  assert.ok(JS.includes("c.toDataURL('image/jpeg', q)"));
   // 백업 문구에는 복사 단추를 두지 않는다(손으로 적게 한다).
   assert.ok(HTML.includes('복사 단추는 일부러 두지 않았습니다'));
   assert.equal(HTML.includes('navigator.clipboard'), false);

@@ -4,7 +4,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>IRIS 메신저</title>
+<title>IRIS Messenger</title>
 <!-- 뼈대(이 파일) + 스타일(panel.css) + 동작(panel.js) 세 파일을 모듈 프로세스가 한 장으로 합쳐 내준다(panel.mjs).
      화면은 바깥 자원을 하나도 불러오지 않는다. -->
 <style>
@@ -26,12 +26,15 @@
   <symbol id="i-in" viewBox="0 0 24 24"><path d="M10 7V5a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-6a2 2 0 0 1-2-2v-2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M3 12h11m-3-3 3 3-3 3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></symbol>
   <symbol id="i-block" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M6 6l12 12" stroke="currentColor" stroke-width="1.6"/></symbol>
   <symbol id="i-trash" viewBox="0 0 24 24"><path d="M5 7h14M9 7V4h6v3M7 7l1 13h8l1-13" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/></symbol>
+  <symbol id="i-back" viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-cam" viewBox="0 0 24 24"><path d="M4 8h3l1.5-2h7L17 8h3v11H4z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><circle cx="12" cy="13" r="3.2" fill="none" stroke="currentColor" stroke-width="1.6"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
   <symbol id="i-key" viewBox="0 0 24 24"><circle cx="8" cy="14" r="4" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M11 11l8-8m-3 3 2.5 2.5M16 6l2.5 2.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></symbol>
 </svg>
 
 <!-- ① 서버 주소가 없다 -->
 <main id="stage-nohub" class="gate" hidden>
-  <p class="brand"><svg class="mark"><use href="#i-mark"/></svg><span class="word">IRIS</span><span class="sub">메신저</span></p>
+  <p class="brand"><svg class="mark"><use href="#i-mark"/></svg><span class="word">IRIS</span><span class="sub">Messenger</span></p>
   <div class="card">
     <h1>서버 주소</h1>
     <p class="lead">메신저는 여러분이 정한 Supabase 주소로만 오갑니다. 주소와 anon key는 이 PC에만 저장됩니다.</p>
@@ -45,7 +48,7 @@
 
 <!-- ② 로그인 전: 메일 주소 -->
 <main id="stage-out" class="gate" hidden>
-  <p class="brand"><svg class="mark"><use href="#i-mark"/></svg><span class="word">IRIS</span><span class="sub">메신저</span></p>
+  <p class="brand"><svg class="mark"><use href="#i-mark"/></svg><span class="word">IRIS</span><span class="sub">Messenger</span></p>
   <div class="card">
     <h1>시작하기</h1>
     <p class="lead">메일 주소를 적으면 인증번호 6자리를 보내 드립니다. 이 PC에서는 한 번만 하면 됩니다.</p>
@@ -58,14 +61,13 @@
     <button id="out-send" class="btn primary wide" type="button" disabled>인증번호 받기</button>
     <p class="err" id="out-err" role="alert"></p>
   </div>
-  <p class="foot">서버에는 암호문만 지납니다. 글과 파일은 이 PC와 상대 PC에서만 열립니다.<br>
-    <a id="link-privacy" href="https://github.com/Feynman520/d06-p04-iris-messenger/blob/main/hub/server/처리방침.md" target="_blank" rel="noopener">처리방침</a>
+  <p class="foot"><a id="link-privacy" href="/privacy" target="_blank" rel="noopener">처리방침 읽기</a>
     <span aria-hidden="true"> · </span>서버 <span id="out-hub" class="fp"></span></p>
 </main>
 
 <!-- ③ 인증번호 -->
 <main id="stage-code" class="gate" hidden>
-  <p class="brand"><svg class="mark"><use href="#i-mark"/></svg><span class="word">IRIS</span><span class="sub">메신저</span></p>
+  <p class="brand"><svg class="mark"><use href="#i-mark"/></svg><span class="word">IRIS</span><span class="sub">Messenger</span></p>
   <div class="card">
     <h1>인증번호 입력</h1>
     <p class="lead"><span id="code-email"></span> 으로 보냈습니다. 메일에 적힌 6자리 숫자를 넣어 주세요.</p>
@@ -89,7 +91,7 @@
 
 <!-- ④ 이름·열쇠(신원) -->
 <main id="stage-identity" class="gate" hidden>
-  <p class="brand"><svg class="mark"><use href="#i-mark"/></svg><span class="word">IRIS</span><span class="sub">메신저</span></p>
+  <p class="brand"><svg class="mark"><use href="#i-mark"/></svg><span class="word">IRIS</span><span class="sub">Messenger</span></p>
   <div class="card">
     <div id="idn-mismatch" class="notice bad" hidden>
       <p><strong>이 PC의 열쇠가 계정의 열쇠와 다릅니다.</strong> 다른 PC에서 쓰던 계정이면 그때 적어 둔 12단어로 복원하세요. 12단어가 없으면 열쇠를 재설정할 수 있지만 예전에 받은 글은 다시 열 수 없고, 연락처마다 내 새 지문을 다시 확인해야 합니다.</p>
@@ -124,7 +126,7 @@
 <main id="stage-in" hidden>
   <aside class="rail">
     <div class="rail-head">
-      <p class="brand" style="margin:0"><svg class="mark"><use href="#i-mark"/></svg><span class="word">IRIS</span></p>
+      <p class="brand" style="margin:0"><svg class="mark"><use href="#i-mark"/></svg><span class="word">IRIS</span><span class="sub">Messenger</span></p>
       <div class="menu-wrap">
         <button id="btn-plus" class="ic" type="button" title="초대" aria-haspopup="true" aria-expanded="false"><svg><use href="#i-plus"/></svg></button>
         <div id="menu-plus" class="menu right" role="menu" hidden>
@@ -136,6 +138,7 @@
     <div class="rail-title"><span>연락처</span></div>
     <ul id="contacts"></ul>
     <div class="me">
+      <span id="me-avatar" class="avatar" aria-hidden="true">나</span>
       <div class="txt">
         <span class="name" id="me-name">나</span>
         <span class="fp" id="me-fp"></span>
@@ -161,10 +164,55 @@
       </div>
       <input id="file-input" type="file" hidden aria-label="attach file">
     </form>
+
+    <!-- 설정: 대화 영역을 덮는 한 장(팝업 아님) -->
+    <div id="settings-page" class="page" hidden>
+      <header class="page-head"><button id="set-back" class="ic" type="button" title="뒤로"><svg><use href="#i-back"/></svg></button><h2>설정</h2></header>
+      <div class="page-body">
+        <section class="profile">
+          <div class="menu-wrap">
+            <button id="set-avatar" class="avatar big" type="button" title="사진 바꾸기" aria-haspopup="true" aria-expanded="false">
+              <img id="set-avatar-img" alt="" hidden><span id="set-avatar-ini">나</span><span class="cam" aria-hidden="true"><svg><use href="#i-cam"/></svg></span>
+            </button>
+            <div id="menu-avatar" class="menu left" role="menu" hidden>
+              <button id="set-avatar-pick" type="button" role="menuitem"><svg><use href="#i-cam"/></svg>사진 고르기</button>
+              <button id="set-avatar-remove" type="button" role="menuitem" class="danger"><svg><use href="#i-trash"/></svg>사진 지우기</button>
+            </div>
+            <input id="avatar-input" type="file" accept="image/*" hidden aria-label="profile photo">
+          </div>
+          <div class="ptxt">
+            <div class="pname"><input id="set-name" type="text" placeholder="홍길동" autocomplete="off" maxlength="40" aria-label="상대에게 보일 이름"><button id="set-rename" class="ic accent" type="button" title="이름 저장" hidden><svg><use href="#i-check"/></svg></button></div>
+            <div class="pmail" id="set-email">—</div>
+            <div class="pfp">지문 <span id="set-fp" class="fp">—</span></div>
+          </div>
+        </section>
+        <section class="rows">
+          <label class="row3"><span class="t">새 글 알림<small>끄면 Face 알림 없이 배지 숫자만 늘어납니다</small></span><input id="set-mute" class="sw" type="checkbox"></label>
+          <div class="row3"><span class="t">백업 문구<small>12단어. 보려면 확인을 거칩니다</small></span><button id="set-words" class="btn sm" type="button">다시 보기</button></div>
+        </section>
+        <details class="more adv">
+          <summary>고급 — 서버 주소</summary>
+          <div class="inner">
+            <label class="field"><span>서버 주소</span><input id="set-url" type="text" placeholder="https://xxxx.supabase.co" autocomplete="off"></label>
+            <label class="field"><span>anon key</span><input id="set-key" type="text" placeholder="서버를 바꿀 때만 채웁니다" autocomplete="off"></label>
+            <div class="acts"><button id="set-hub" class="btn sm" type="button">서버 주소 저장</button><span class="hint" style="margin:0;align-self:center">저장하면 로그아웃됩니다</span></div>
+          </div>
+        </details>
+        <p class="err" id="set-err" role="alert"></p>
+        <footer class="page-foot">
+          <span class="ver">IRIS Messenger <span id="set-version">—</span></span>
+          <span class="dangerzone">
+            <button id="set-logout" class="link" type="button">로그아웃</button>
+            <button id="set-reset" class="link red" type="button">열쇠 재설정</button>
+            <button id="set-delete" class="link red" type="button">탈퇴</button>
+          </span>
+        </footer>
+      </div>
+    </div>
   </section>
 </main>
 
-<!-- 대화상자 5 -->
+<!-- 대화상자 4 -->
 <dialog id="words-dialog" aria-labelledby="words-title">
   <div class="head"><h2 id="words-title">백업 문구 12단어</h2><button class="x" type="button" data-close aria-label="close">✕</button></div>
   <div class="body">
@@ -195,44 +243,6 @@
   <div class="foot">
     <button class="btn" type="button" data-close>그만두기</button>
     <button id="accept-go" class="btn primary" type="button">보내기</button>
-  </div>
-</dialog>
-
-<dialog id="settings-dialog" aria-labelledby="settings-title">
-  <div class="head"><h2 id="settings-title">설정</h2><button class="x" type="button" data-close aria-label="close">✕</button></div>
-  <div class="body">
-    <div class="sec">
-      <h3>계정</h3>
-      <div class="row2"><span class="k">메일</span><span class="v" id="set-email">—</span></div>
-      <div class="row2"><span class="k">내 지문</span><span class="v fp" id="set-fp">—</span></div>
-      <div class="row2"><span class="k">이름</span><span class="v"><input id="set-name" type="text" placeholder="홍길동" autocomplete="off" maxlength="40"></span><span class="a"><button id="set-rename" class="btn sm" type="button">바꾸기</button></span></div>
-    </div>
-    <div class="sec">
-      <h3>열쇠</h3>
-      <div class="row2"><span class="k">백업 문구</span><span class="v hint" style="margin:0">12단어. 보려면 확인을 거칩니다</span><span class="a"><button id="set-words" class="btn sm" type="button">다시 보기</button></span></div>
-    </div>
-    <div class="sec">
-      <h3>알림</h3>
-      <label class="row2" style="cursor:pointer"><span class="k">새 글 알림</span><span class="v" style="text-align:left;color:var(--mut)">끄면 배지만 늘어납니다</span><input id="set-mute" class="sw" type="checkbox" title="새 글이 와도 알리지 않기"></label>
-    </div>
-    <div class="sec">
-      <h3>서버</h3>
-      <div class="row2"><span class="k">주소</span><span class="v"><input id="set-url" type="text" placeholder="https://xxxx.supabase.co" autocomplete="off"></span></div>
-      <div class="row2"><span class="k">anon key</span><span class="v"><input id="set-key" type="text" placeholder="서버를 바꿀 때만 채웁니다" autocomplete="off"></span></div>
-      <div class="acts"><button id="set-hub" class="btn sm" type="button">서버 주소 저장</button><span class="hint" style="margin:0;align-self:center">저장하면 로그아웃됩니다</span></div>
-    </div>
-    <div class="sec">
-      <h3>정보</h3>
-      <div class="row2"><span class="k">판번호</span><span class="v" id="set-version">—</span></div>
-    </div>
-    <div class="sec">
-      <div class="dangerzone">
-        <button id="set-logout" class="link" type="button">로그아웃</button>
-        <button id="set-reset" class="link" type="button" style="color:var(--bad)">열쇠 재설정</button>
-        <button id="set-delete" class="link" type="button" style="color:var(--bad)">탈퇴</button>
-      </div>
-      <p class="err" id="set-err" role="alert"></p>
-    </div>
   </div>
 </dialog>
 

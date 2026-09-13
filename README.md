@@ -18,6 +18,8 @@ Face 사용자 두 명이 초대 코드를 주고받아 서로를 연락처로 �
 |---|---|
 | ![대화 화면](docs/화면-대화-2026-09-13.png) | ![설정 화면](docs/화면-설정-2026-09-13.png) |
 
+설정은 팝업이 아니라 대화 영역을 덮는 한 장입니다. 맨 위 프로필 카드에서 **사진(선택)**·이름을 바꿉니다. 사진은 PC 안에서 96×96 JPEG로 줄여 서버 `profiles`에 두며(처리방침 "서버가 아는 것"에 명시), 연락처를 맺은 상대에게만 보입니다. 처리방침 전문은 로그인 화면의 "처리방침 읽기" 링크(모듈이 내주는 한 장, 정본은 `hub/server/처리방침.md`)로 봅니다.
+
 밝은 테마도 있습니다(Face의 테마를 따릅니다): [대화 화면 · 라이트](docs/화면-대화-라이트-2026-09-13.png). 대화 화면의 이름·내용은 화면을 보여 주기 위해 지어낸 것입니다(실제 사용자·대화가 아닙니다).
 
 ## 설치 3길
@@ -40,7 +42,7 @@ Face 사용자 두 명이 초대 코드를 주고받아 서로를 연락처로 �
 | 아는 것 | 모르는 것 |
 |---|---|
 | 이메일 | 메시지 내용(평문) — 암호문만 저장 |
-| 표시 이름 | 파일 이름·크기 — 암호문 안에 들어 있어 서버는 못 봄 |
+| 표시 이름 · 프로필 사진(선택, 96×96 JPEG) | 파일 이름·크기 — 암호문 안에 들어 있어 서버는 못 봄 |
 | 공개 열쇠(public key) | 개인 열쇠·12단어 복구 문구 — 서버에 절대 전송되지 않음 |
 | 연락처 관계(누가 누구와 연결돼 있는지) | 사용자의 작업 내용·작업 과정·세션 기록 |
 | "누가 누구에게 언제 몇 번" 보냈는지(메타데이터) | 파일 실제 내용 |
@@ -82,7 +84,7 @@ An end-to-end encrypted (E2EE) person-to-person messaging module that plugs into
 
 **First use.** Email → a login mail: if it carries a 6-digit code, type the code; if it carries only a link, do **not** click it — copy the link address and paste it in (which of the two you get depends on the hub's mail configuration) → display name → a 12-word recovery phrase is shown once (write it down offline; no copy button, to avoid clipboard leakage) → exchange an invite code out-of-band with a contact → **compare the 8-character key fingerprint out-of-band before accepting** (this is the only defense against a server-side key-swap/MITM attack) → chat once accepted.
 
-**What the server knows / doesn't know:** email, display name, public key, contact relationships, and send/receive metadata (who-to-whom-when) — never message or file contents, filenames, private keys, or the 12-word phrase. Details: [`hub/server/처리방침.md`](hub/server/처리방침.md) (Korean; the privacy notice governing the official hub).
+**What the server knows / doesn't know:** email, display name, optional profile photo (a 96×96 JPEG, stored unencrypted like the display name), public key, contact relationships, and send/receive metadata (who-to-whom-when) — never message or file contents, filenames, private keys, or the 12-word phrase. Details: [`hub/server/처리방침.md`](hub/server/처리방침.md) (Korean; the privacy notice governing the official hub).
 
 **Honest limits.** No external security audit · forward secrecy is only partial (no double-ratchet — a leaked private key exposes past messages) · the 8-character/~40-bit fingerprint is short by design (real protection depends on actually comparing it) · Windows DPAPI does not protect against malware running as the same Windows user · the module's separate-process isolation is bug isolation, not malicious-code isolation (the defense against a malicious module is the release signature check) · decrypted messages are stored in plaintext on local disk.
 

@@ -116,6 +116,7 @@ class FakeApp {
       email: this.stage === 'out' ? null : 'me@example.com',
       user: this.stage === 'out' || this.stage === 'code' ? null : { id: 'me' },
       displayName: '이영희',
+      avatar: this.avatar ?? null,
       fingerprint: 'A3TV8N5P',
       hub: { url: 'https://demo1234.supabase.co', custom: false },
       hubMismatch: null,
@@ -127,7 +128,7 @@ class FakeApp {
       notifyMuted: this.notifyMuted,
       theme: { id: 'indigo', mode: MODE },
       lang: 'ko',
-      version: '0.2.1',
+      version: '0.3.0',
       limits: { textMax: TEXT_MAX, fileMax: FILE_MAX },
       riskyExt: RISKY_EXT.source,
     };
@@ -141,6 +142,7 @@ class FakeApp {
   async registerExisting(displayName) { this.stage = 'in'; this.emitState(); return { displayName: displayName }; }
   async mnemonic() { return { words: WORDS }; }
   async resetIdentity() { return { words: WORDS }; }
+  async setAvatar(v) { this.avatar = v; this.emitState(); return { avatar: v }; }
   async setNotifyMuted(v) { this.notifyMuted = !!v; this.emitState(); return this.notifyMuted; }
   async setHub() { this.stage = 'out'; this.emitState(); return { stage: this.stage }; }
   settingsView() { return { notifyMuted: this.notifyMuted, hub: { url: 'https://demo1234.supabase.co', custom: false } }; }
@@ -149,8 +151,9 @@ class FakeApp {
 
 const token = crypto.randomBytes(8).toString('hex');
 const panelHtml = loadPanel(path.join(ROOT, 'module'));
+const privacyHtml = fs.readFileSync(path.join(ROOT, 'module', 'privacy.html'), 'utf8');
 const app = new FakeApp();
-const server = http.createServer(createHandler({ app, token, panelHtml, out: () => {} }));
+const server = http.createServer(createHandler({ app, token, panelHtml, privacyHtml, out: () => {} }));
 
 server.listen(0, '127.0.0.1', () => {
   process.stdout.write(`panel: http://127.0.0.1:${server.address().port}/?t=${token}\n`);

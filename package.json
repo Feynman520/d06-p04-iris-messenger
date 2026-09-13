@@ -1,6 +1,6 @@
 {
   "name": "iris-messenger",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "private": true,
   "description": "IRIS Messenger: end-to-end encrypted person-to-person messaging module for IRIS-Face",
   "author": "Sejun Ham (함세준)",

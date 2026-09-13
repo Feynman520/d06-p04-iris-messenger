@@ -19,6 +19,8 @@ import { Messages, TEXT_MAX, FILE_MAX, RISKY_EXT } from './messages.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 export const NAME_MAX = 40; // 표시 이름 글자 수 상한(화면·API가 같은 값을 쓴다)
+export const AVATAR_MAX = 32 * 1024; // 프로필 사진 data URL 상한(서버 제약 0004 와 같은 값)
+const AVATAR_RE = /^data:image\/jpeg;base64,[A-Za-z0-9+/]+=*$/;
 // 계정 폴더가 생기기 전(0.1.0)의 자리 — 첫 로그인 때 통째로 계정 폴더로 옮긴다.
 const LEGACY_NAMES = ['keys.bin', 'contacts.json', 'messages', 'files', 'outbox.json'];
 
@@ -46,6 +48,7 @@ export class App {
     this.keyMismatch = false; // 서버가 아는 내 공개키 ≠ 이 컴퓨터의 열쇠
     this.profileMissing = false; // 이 PC에는 열쇠가 있는데 서버에는 내 프로필 줄이 없다
     this.displayName = null;
+    this.avatar = null;
     this.theme = null;
     this.lang = 'ko';
     this.face = null;
@@ -78,6 +81,7 @@ export class App {
 
     this.settings = (await readJson(path.join(stateDir, 'settings.json'), {})) || {};
     this.displayName = this.settings.displayName || null;
+    this.avatar = this.settings.avatar || null;
 
     const fileHub = (await readJson(path.join(HERE, 'hub.json'), null)) || null;
     const custom = this.settings.hub;
@@ -189,6 +193,10 @@ export class App {
       // 상대가 나를 찾을 수도, 내가 초대 코드를 만들 수도 없다 — 신원 화면으로 돌려 등록·복원하게 한다.
       this.profileMissing = !profile;
       // 서버의 이름이 정본 — 다른 기기에서 바꿨거나 다른 계정으로 갈아탄 경우를 맞춘다.
+      if (!this.keyMismatch && profile && (profile.avatar ?? null) !== this.avatar) {
+        this.avatar = profile.avatar ?? null;
+        await this.#saveSettings({ avatar: this.avatar });
+      }
       const name = profile?.display_name || null;
       if (!this.keyMismatch && name && name !== this.displayName) {
         this.displayName = name;
@@ -234,6 +242,7 @@ export class App {
       email: user?.email ?? this.#pendingEmail ?? null,
       user: user ? { id: user.id } : null,
       displayName: this.displayName ?? null,
+      avatar: this.avatar ?? null,
       fingerprint: this.identity?.fingerprint ?? null,
       hub: { url: this.hubConf?.url ?? null, custom: this.hubCustom },
       hubMismatch: this.hubMismatch ?? null,
@@ -338,6 +347,7 @@ export class App {
     const { displayName, ...rest } = this.settings;
     this.settings = rest;
     this.displayName = null;
+    this.avatar = null;
     await writeJson(path.join(this.stateDir, 'settings.json'), this.settings);
     await this.init({ stateDir: this.stateDir }); // 빈 계정에서 처음부터
     this.#emitState();
@@ -428,6 +438,22 @@ export class App {
     await this.#saveSettings({ displayName: name });
     this.#emitState();
     return { displayName: name };
+  }
+
+  // 프로필 사진: JPEG data URL(≤ AVATAR_MAX) 또는 null(지움). 서버·설정 파일·상태에 같은 값.
+  async setAvatar(avatar) {
+    this.#needSession();
+    let v = null;
+    if (avatar !== null && avatar !== undefined && avatar !== '') {
+      v = String(avatar);
+      if (!AVATAR_RE.test(v)) throw new Error('bad avatar');
+      if (v.length > AVATAR_MAX) throw new Error('avatar too large');
+    }
+    await this.identity.setAvatar(v);
+    this.avatar = v;
+    await this.#saveSettings({ avatar: v });
+    this.#emitState();
+    return { avatar: v };
   }
 
   // ---- 설정 ----
