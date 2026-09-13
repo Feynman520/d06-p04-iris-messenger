@@ -1,26 +1,41 @@
 // IRIS Messenger · © 2026 Sejun Ham (함세준) · MIT · https://feynman520.github.io/card/#home
-// panel.html 정적 검사: 단일 파일(바깥 링크 0) · alert/confirm/prompt 없음 · 필수 id ·
-// 창구는 api() 하나(fetch 호출점 1곳) · EventSource에 토큰 · 규정된 안내 문구 그대로.
+// 화면 정적 검사: 세 조각(panel.html·css·js)이 한 장으로 조립되고(바깥 링크 0) · alert/confirm/prompt 없음 ·
+// 필수 id · 창구는 api() 하나(fetch 호출점 1곳) · EventSource에 토큰 · 규정된 안내 문구 그대로.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { loadPanel, assemble } from '../panel.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const FILE = path.join(HERE, '..', 'panel.html');
-const HTML = fs.readFileSync(FILE, 'utf8');
+const DIR = path.join(HERE, '..');
+const HTML = loadPanel(DIR);
+const RAW_JS = fs.readFileSync(path.join(DIR, 'panel.js'), 'utf8');
+const RAW_CSS = fs.readFileSync(path.join(DIR, 'panel.css'), 'utf8');
 
 const count = (s, needle) => s.split(needle).length - 1;
 
 // 주석을 걷어낸 스크립트 알맹이 — 주석 속 낱말이 검사에 걸리지 않게 한다.
-const JS = HTML.slice(HTML.indexOf('<script>'), HTML.indexOf('</script>'))
+const JS = RAW_JS
   .replace(/\/\*[\s\S]*?\*\//g, '')   // /* … */ 통째로
   .replace(/^\s*\/\/.*$/gm, '');      // 줄 전체가 // 인 것
 
-test('① 한 파일 안에 다 있고 크기가 200KB보다 작다', () => {
+test('⓪ 조립기: 세 조각이 한 장이 되고, 자리가 없거나 닫는 꼬리표가 섞이면 거부한다', () => {
+  assert.ok(HTML.includes(RAW_CSS.trimEnd()), 'css 가 그대로 들어간다');
+  assert.ok(HTML.includes(RAW_JS.trimEnd()), 'js 가 그대로 들어간다');
+  assert.equal(HTML.includes('<!--@css-->'), false);
+  assert.equal(HTML.includes('<!--@js-->'), false);
+  assert.throws(() => assemble('<html></html>', '', ''), /slots/);
+  assert.throws(() => assemble('<style><!--@css--></style><script><!--@js--></script>', '', 'x</script>'), /script/);
+  assert.throws(() => assemble('<style><!--@css--></style><script><!--@js--></script>', 'a</style>', ''), /style/);
+  // 조립 결과는 $ 치환 규칙에 휘둘리지 않는다($& 같은 글자가 그대로 남는다).
+  assert.ok(assemble('<style><!--@css--></style><script><!--@js--></script>', 'a{content:"$&"}', 'var s="$1";').includes('$&'));
+});
+
+test('① 한 장 안에 다 있고 크기가 200KB보다 작다', () => {
   const bytes = Buffer.byteLength(HTML, 'utf8');
-  assert.ok(bytes > 0 && bytes < 200 * 1024, `panel.html = ${bytes} bytes`);
+  assert.ok(bytes > 0 && bytes < 200 * 1024, `panel = ${bytes} bytes`);
   assert.equal(HTML.split('\n')[0].trim(), '<!-- IRIS Messenger · © 2026 Sejun Ham (함세준) · MIT · https://feynman520.github.io/card/#home -->');
   assert.equal(count(HTML, '<script'), 1, '스크립트는 인라인 한 덩어리');
   assert.equal(count(HTML, '<style'), 1, '스타일도 인라인 한 덩어리');
@@ -35,12 +50,15 @@ test('② 바깥에서 불러오는 자원이 하나도 없다(오프라인에�
   // 처리방침 링크뿐이다(불러오는 자원이 아니라 이동하는 주소 — 오프라인에서도 화면은 그대로 뜬다).
   const urls = HTML.match(/https?:\/\/[^\s"'<>)]+/g) || [];
   for (const u of urls) {
-    assert.ok(/feynman520\.github\.io|xxxx\.supabase\.co|127\.0\.0\.1|github\.com\/Feynman520\/d06-p04-iris-messenger/.test(u), `예상 밖 주소: ${u}`);
+    // www.w3.org/2000/svg 는 SVG 이름공간 문자열(createElementNS)이지 불러오는 주소가 아니다.
+    assert.ok(/feynman520\.github\.io|xxxx\.supabase\.co|127\.0\.0\.1|github\.com\/Feynman520\/d06-p04-iris-messenger|^https?:\/\/…$|^http:\/\/www\.w3\.org\/2000\/svg$/.test(u), `예상 밖 주소: ${u}`);
   }
   // 바깥으로 나가는 링크는 새 탭 + rel="noopener" 로만 연다.
   for (const m of HTML.match(/<a [^>]*href="https?:[^>]*>/g) || []) {
     assert.ok(m.includes('target="_blank"') && m.includes('rel="noopener"'), `안전하지 않은 링크: ${m}`);
   }
+  // 그림 글자는 안에 담아 둔 <symbol> 을 <use href="#…"> 로만 꺼낸다.
+  for (const m of HTML.match(/<use [^>]*>/g) || []) assert.ok(/href="#i-[a-z]+"/.test(m), `바깥 그림: ${m}`);
 });
 
 test('③ alert·confirm·prompt를 쓰지 않고 Escape를 가로채지 않는다', () => {
@@ -69,6 +87,8 @@ test('⑤ 단계·본 화면의 필수 id가 모두 있다', () => {
     'invite-dialog', 'accept-dialog', 'confirm-dialog',
     'conn-dot', 'peerbar', 'file-input', 'count',
     'set-name', 'set-rename', 'idn-missing', 'idn-register',
+    'btn-plus', 'menu-plus', 'btn-invite', 'btn-accept', 'btn-settings',
+    'code-input', 'code-link', 'code-more', 'link-privacy',
   ];
   for (const id of ids) assert.ok(HTML.includes(`id="${id}"`), `id="${id}" 가 없다`);
   assert.equal(count(HTML, '<dialog id='), 5, '대화상자는 <dialog> 5개');
@@ -87,10 +107,15 @@ test('⑥ 서버와 이야기하는 창구는 api() 하나뿐이다', () => {
 
 test('⑦ 로그인 단계의 규정 문구와 14세 확인 칸이 그대로 있다', () => {
   assert.ok(HTML.includes('만 14세 이상이며 처리방침을 읽었습니다'));
-  assert.ok(HTML.includes('id="out-agree"'), '체크 전에는 코드 받기를 막는 칸');
-  assert.ok(HTML.includes('<button id="out-send" class="btn primary wide" type="button" disabled>'), '코드 받기는 처음에 잠겨 있다');
-  assert.ok(HTML.includes('메일에 6자리 코드가 있으면 코드를, 링크만 있으면 <strong>링크를 누르지 말고</strong> 링크 주소를 복사해 여기에 붙여 넣으세요.'));
+  assert.ok(HTML.includes('id="out-agree"'), '체크 전에는 인증번호 받기를 막는 칸');
+  assert.ok(HTML.includes('<button id="out-send" class="btn primary wide" type="button" disabled>'), '인증번호 받기는 처음에 잠겨 있다');
+  assert.ok(HTML.includes('메일 주소를 적으면 인증번호 6자리를 보내 드립니다. 이 PC에서는 한 번만 하면 됩니다.'));
+  assert.ok(HTML.includes('링크만 있으면 <strong>링크를 누르지 말고</strong> 링크 주소를 복사해 아래에 붙여 넣으세요.'));
   assert.ok(/5번[^\n]*잠깁니다/.test(HTML), '5회 잠금 안내');
+  // 인증번호 칸은 숫자 6자리만 받고, 다 차면 스스로 확인한다. 링크는 접힌 칸에 따로.
+  assert.ok(HTML.includes('inputmode="numeric"') && HTML.includes('maxlength="6"'));
+  assert.ok(JS.includes("if (v.length === 6 && !$('code-link').value.trim()) verifyCode();"));
+  assert.ok(JS.includes("var code = link || $('code-input').value.trim();"));
 });
 
 test('⑧ 신뢰·안전 문구가 빠지지 않았다', () => {
@@ -132,7 +157,7 @@ test('⑩ 새 편지가 오면 낡은 unread를 보지 않고 곧장 읽음 처�
 });
 
 test('⑪ 열쇠가 어긋난 화면에는 물어보지 않는 열쇠 파괴 단추가 없다', () => {
-  // 새 열쇠 만들기는 재설정과 똑같이 이 PC의 옛 열쇠를 지운다 → keyMismatch면 감춘다.
+  // 시작(새 열쇠 만들기)은 재설정과 똑같이 이 PC의 옛 열쇠를 지운다 → keyMismatch면 감춘다.
   assert.ok(JS.includes("$('idn-normal').hidden = !!S.keyMismatch;"));
   assert.ok(JS.includes("$('idn-create').hidden = !!S.keyMismatch;"));
   assert.ok(JS.includes("if (S.keyMismatch) $('idn-words-wrap').hidden = false;"));
@@ -144,8 +169,8 @@ test('⑪ 열쇠가 어긋난 화면에는 물어보지 않는 열쇠 파괴 단
 test('⑫ 서버의 영어 오류를 사람 말로 바꾼다', () => {
   const pairs = [
     ['bad email', '메일 주소 형식이 아닙니다'],
-    ['bad code', '코드 또는 링크 형식이 아닙니다'],
-    ['locked', '5회 틀려 잠겼습니다. 코드를 다시 받으세요'],
+    ['bad code', '인증번호 또는 링크 형식이 아닙니다'],
+    ['locked', '5회 틀려 잠겼습니다. 인증번호를 다시 받으세요'],
     ['invalid or expired invite', '초대 코드가 틀렸거나 만료됐습니다'],
     ['too many attempts, wait a minute', '시도가 너무 많습니다. 1분 뒤 다시 하세요'],
     ['fingerprint mismatch', '지문이 맞지 않습니다. 코드를 다시 확인하세요(서버가 열쇠를 바꿔치기했을 수 있습니다)'],
@@ -155,7 +180,7 @@ test('⑫ 서버의 영어 오류를 사람 말로 바꾼다', () => {
     ['display name too long', '표시 이름이 너무 깁니다(40자까지)'],
     ['bad hub url or key', '서버 주소 또는 키가 올바르지 않습니다'],
     ['internal error', '내부 오류가 났습니다. 다시 시도하세요'],
-    ['Token has expired or is invalid', '코드가 만료됐거나 틀렸습니다'],
+    ['Token has expired or is invalid', '인증번호가 만료됐거나 틀렸습니다'],
   ];
   for (const [en, ko] of pairs) assert.ok(JS.includes(ko), `${en} → ${ko} 가 없다`);
   assert.ok(JS.includes("return '서버에 연결할 수 없습니다'"), '끊긴 전선');
@@ -177,4 +202,21 @@ test('⑬ 보내는 중에는 두 번 보내지지 않고, 끝나면 입력칸�
   // 서버 주소는 anon key와 짝으로만 보낸다.
   assert.ok(JS.includes("if (!key) { say('set-err', '서버를 바꾸려면 anon key도 함께 넣으세요.'); return; }"));
   assert.ok(HTML.includes('placeholder="서버를 바꿀 때만 채웁니다"'));
+});
+
+test('⑭ 모듈이 준 문자열은 HTML 에 넣지 않고 textContent 로만 그린다', () => {
+  assert.equal(count(JS, 'innerHTML'), 0);
+  assert.equal(count(JS, 'insertAdjacentHTML'), 0);
+  assert.equal(count(JS, 'outerHTML'), 0);
+  // 화면 조각은 h()·icon() 두 도우미로만 만든다.
+  assert.ok(JS.includes('function h(tag, attrs)') && JS.includes('function icon(name)'));
+});
+
+test('⑮ 브랜드는 Face 헤더와 같은 회전 육각 + IRIS 이고, 알림 스위치는 "켜짐" 뜻이다', () => {
+  assert.ok(HTML.includes('<symbol id="i-mark"'), '회전 육각 그림');
+  assert.ok(RAW_CSS.includes('@keyframes mk-spin'));
+  assert.ok(RAW_CSS.includes('"Segoe Script"'), 'IRIS 글자체');
+  assert.ok(count(HTML, '<span class="word">IRIS</span>') >= 5, '문 4장 + 본 화면');
+  assert.ok(JS.includes("$('set-mute').checked = !(S && S.notifyMuted);"));
+  assert.ok(JS.includes('notifyMuted: !e.target.checked'));
 });

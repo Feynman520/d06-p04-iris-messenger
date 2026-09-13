@@ -9,6 +9,7 @@ import readline from 'node:readline';
 import { fileURLToPath } from 'node:url';
 import { App } from './app.mjs';
 import { createHandler } from './api.mjs';
+import { loadPanel } from './panel.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const PLACEHOLDER = '<!doctype html><meta charset="utf-8"><title>IRIS Messenger</title><p>panel pending</p>';
@@ -20,7 +21,7 @@ const out = (o) => { try { process.stdout.write(`${JSON.stringify(o)}\n`); } cat
 const logErr = (m) => { try { process.stderr.write(`[messenger] ${m}\n`); } catch { /* noop */ } };
 
 let panelHtml = PLACEHOLDER;
-try { panelHtml = fs.readFileSync(path.join(HERE, 'panel.html'), 'utf8'); } catch { /* 화면 파일이 없으면 자리만 지킨다 */ }
+try { panelHtml = loadPanel(HERE); } catch (e) { logErr(`panel: ${e?.message || e}`); /* 화면 파일이 없으면 자리만 지킨다 */ }
 
 const app = new App({ log: logErr });
 let server = null;

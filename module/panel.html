@@ -5,345 +5,143 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>IRIS 메신저</title>
+<!-- 뼈대(이 파일) + 스타일(panel.css) + 동작(panel.js) 세 파일을 모듈 프로세스가 한 장으로 합쳐 내준다(panel.mjs).
+     화면은 바깥 자원을 하나도 불러오지 않는다. -->
 <style>
-/* ── 낱말 ─────────────────────────────────────────────────────────────
-   이 화면의 주인공은 "지문" 8자다. 사람이 눈으로 한 글자씩 맞춰 보는 값이라
-   고정폭 글꼴 + 넓은 자간으로만 쓰고, 나머지는 전부 조용하게 둔다.        */
-:root{
-  --accent:#6f7cff;
-  --bg:#101219; --sur:#171a24; --sur2:#1e2231; --line:#2a2f3f; --line2:#39405400;
-  --fg:#e7e9f3; --mut:#99a0ba; --dim:#6d7490;
-  --ok:#3fbf83; --warn:#e0a542; --bad:#ff7070;
-  --sans:"Segoe UI Variable Text","Segoe UI","Malgun Gothic","맑은 고딕",system-ui,sans-serif;
-  --mono:"Cascadia Mono",Consolas,"D2Coding","Malgun Gothic",monospace;
-  --r:12px;
-}
-html[data-mode="light"]{
-  --bg:#f4f5fa; --sur:#ffffff; --sur2:#eceef6; --line:#d7dae7;
-  --fg:#1a1d29; --mut:#586074; --dim:#838a9f;
-  --ok:#1c8f5c; --warn:#9a6708; --bad:#c43c3c;
-}
-*{box-sizing:border-box}
-[hidden]{display:none!important}
-html,body{height:100%}
-body{
-  margin:0;background:var(--bg);color:var(--fg);
-  font-family:var(--sans);font-size:14px;line-height:1.6;
-  word-break:keep-all;              /* 한글은 낱말 가운데서 끊지 않는다 */
-  -webkit-font-smoothing:antialiased;
-}
-button,input,textarea{font:inherit;color:inherit}
-button{white-space:nowrap}
-::selection{background:var(--accent);color:#fff}
-:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}
-
-/* ── 공통 조각 ───────────────────────────────────────────────────── */
-.btn{
-  border:1px solid var(--line);background:var(--sur2);color:var(--fg);
-  padding:7px 14px;border-radius:8px;cursor:pointer;
-}
-.btn:hover:not(:disabled){border-color:var(--accent)}
-.btn:disabled{opacity:.42;cursor:default}
-.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
-.btn.primary:hover:not(:disabled){filter:brightness(1.08)}
-.btn.quiet{background:transparent;border-color:transparent;color:var(--mut);padding:6px 8px}
-.btn.quiet:hover{color:var(--fg)}
-.btn.danger{color:var(--bad);border-color:var(--line)}
-.btn.danger:hover:not(:disabled){border-color:var(--bad)}
-.btn.wide{width:100%;justify-content:center;text-align:center}
-.btn.sm{padding:4px 10px;font-size:13px}
-
-.field{display:block;margin:0 0 14px}
-.field > span{display:block;color:var(--mut);margin-bottom:5px}
-label.field[for]{margin-bottom:0}   /* 칸 바깥에 서 있는 이름표는 칸에 바짝 붙인다 */
-input[type=text],input[type=email],input[type=password],textarea{
-  width:100%;background:var(--bg);border:1px solid var(--line);border-radius:8px;
-  padding:9px 11px;color:var(--fg);
-}
-html[data-mode="light"] input[type=text],
-html[data-mode="light"] input[type=email],
-html[data-mode="light"] input[type=password],
-html[data-mode="light"] textarea{background:var(--sur)}
-input:focus,textarea:focus{border-color:var(--accent);outline:none}
-textarea{resize:vertical}
-.hint{color:var(--mut);font-size:13px;margin:6px 0 0}
-a{color:var(--accent)}
-.err{color:var(--bad);font-size:13px;margin:8px 0 0;min-height:1.2em}
-.check{display:flex;gap:10px;align-items:flex-start;margin:2px 0 14px;color:var(--mut);cursor:pointer}
-.check input{
-  appearance:none;-webkit-appearance:none;margin:3px 0 0;flex:none;position:relative;
-  width:17px;height:17px;border:1px solid var(--line);border-radius:5px;background:var(--bg);cursor:pointer;
-}
-.check input:hover{border-color:var(--accent)}
-.check input:checked{background:var(--accent);border-color:var(--accent)}
-.check input:checked::after{
-  content:"";position:absolute;left:5px;top:1px;width:4px;height:9px;
-  border:solid #fff;border-width:0 2px 2px 0;transform:rotate(45deg);
-}
-
-/* 지문·초대 코드·백업 낱말 — 눈으로 대조하는 값만 이 글꼴을 쓴다 */
-.fp{font-family:var(--mono);letter-spacing:.2em;font-variant-numeric:tabular-nums}
-.fp-big{
-  display:inline-flex;align-items:center;font-family:var(--mono);
-  font-size:19px;letter-spacing:.24em;padding:5px 3px 5px 12px;
-  border:1px solid var(--line);border-radius:9px;background:var(--sur2);
-}
-.fp-big b{font-weight:inherit;border-left:1px solid var(--line);margin-left:10px;padding-left:12px}
-
-/* ── 로그인·신원 화면(가운데 한 칸) ─────────────────────────────── */
-.gate{
-  min-height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;
-  padding:40px 20px;gap:22px;
-}
-.mark{display:flex;align-items:baseline;gap:9px;color:var(--mut)}
-.mark strong{color:var(--fg);font-size:17px;font-weight:600;letter-spacing:-.01em}
-.mark .dotmark{width:7px;height:7px;border-radius:50%;background:var(--accent);align-self:center}
-.card{
-  width:min(400px,100%);background:var(--sur);border:1px solid var(--line);
-  border-radius:16px;padding:26px 24px 22px;
-}
-.card h1{margin:0 0 8px;font-size:19px;font-weight:600;letter-spacing:-.01em}
-.card p.lead{margin:0 0 18px;color:var(--mut)}
-.gate footer{color:var(--dim);font-size:13px;max-width:46ch;text-align:center;margin:0}
-.split{display:flex;gap:8px}
-.split .btn{flex:1}
-
-/* ── 본 화면 ─────────────────────────────────────────────────────── */
-#stage-in{display:flex;height:100%;min-height:0}
-.rail{
-  width:272px;flex:none;display:flex;flex-direction:column;min-height:0;
-  background:var(--sur);border-right:1px solid var(--line);
-}
-.me{padding:14px 16px 12px;border-bottom:1px solid var(--line)}
-.me .row{display:flex;align-items:center;gap:8px}
-.me .name{font-weight:600;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.me .fp{display:block;color:var(--dim);font-size:12px;margin-top:3px}
-.conn{display:flex;align-items:center;gap:6px;color:var(--mut);font-size:12.5px}
-.dot{width:8px;height:8px;border-radius:50%;background:var(--dim);flex:none}
-.dot.online{background:var(--ok)}
-.dot.slow{background:var(--warn)}
-.dot.offline{background:var(--dim)}
-
-#contacts{list-style:none;margin:0;padding:6px;overflow-y:auto;flex:1;min-height:0}
-#contacts .empty{color:var(--dim);padding:18px 10px;font-size:13px}
-.contact{
-  width:100%;display:block;text-align:left;background:transparent;border:1px solid transparent;
-  border-radius:10px;padding:9px 10px;cursor:pointer;margin-bottom:2px;
-}
-.contact:hover{background:var(--sur2)}
-.contact[aria-current="true"]{background:var(--sur2);border-color:var(--line)}
-.contact .top{display:flex;align-items:center;gap:8px}
-.contact .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500}
-.contact .fp{color:var(--dim);font-size:11.5px;letter-spacing:.16em}
-.contact .sub{display:flex;align-items:center;gap:7px;margin-top:2px}
-.tag{font-size:11.5px;color:var(--mut);border:1px solid var(--line);border-radius:20px;padding:0 7px}
-.tag.warn{color:var(--warn);border-color:var(--warn)}
-.tag.bad{color:var(--bad);border-color:var(--bad)}
-.unread{
-  flex:none;min-width:19px;height:19px;padding:0 5px;border-radius:10px;background:var(--accent);
-  color:#fff;font-size:11.5px;font-weight:600;display:flex;align-items:center;justify-content:center;
-}
-.rail-actions{padding:10px;border-top:1px solid var(--line);display:flex;flex-direction:column;gap:6px}
-
-/* 대화 쪽 */
-.talk{flex:1;display:flex;flex-direction:column;min-width:0;min-height:0}
-#peerbar{
-  padding:12px 18px;border-bottom:1px solid var(--line);background:var(--sur);
-  display:flex;gap:14px;align-items:flex-start;flex-wrap:wrap;
-}
-#peerbar .who{flex:1;min-width:200px}
-#peerbar .who h2{margin:0 0 5px;font-size:15px;font-weight:600}
-#peerbar .acts{display:flex;gap:6px;flex-wrap:wrap}
-.verify{color:var(--mut);font-size:12.5px;margin:6px 0 0;max-width:52ch}
-.banner{
-  margin:0;padding:9px 18px;background:var(--sur2);border-bottom:1px solid var(--line);
-  color:var(--warn);font-size:13px;
-}
-#chat{flex:1;overflow-y:auto;min-height:0;padding:18px;display:flex;flex-direction:column;gap:12px}
-#chat .blank{margin:auto;color:var(--dim);text-align:center;max-width:34ch}
-.line{display:flex;flex-direction:column;gap:3px;max-width:min(62ch,80%)}
-.line.out{align-self:flex-end;align-items:flex-end}
-.line.in{align-self:flex-start;align-items:flex-start}
-.msg{
-  padding:9px 13px;border-radius:16px;white-space:pre-wrap;word-break:break-word;
-  background:var(--sur2);
-}
-.line.in .msg{border-bottom-left-radius:4px}
-.line.out .msg{border-bottom-right-radius:4px;background:var(--sur2);background:color-mix(in srgb,var(--accent) 28%,var(--sur2))}
-.meta{color:var(--dim);font-size:11.5px;display:flex;gap:7px;align-items:center}
-.meta .fail{color:var(--bad)}
-.filecard{
-  border:1px solid var(--line);border-radius:12px;padding:11px 13px;background:var(--sur);
-  min-width:230px;
-}
-.line.in .filecard{border-bottom-left-radius:4px}
-.line.out .filecard{border-bottom-right-radius:4px}
-.filecard .fname{font-weight:600;word-break:break-all}
-.filecard .fsize{color:var(--dim);font-size:12px;margin-top:2px}
-.filecard .risky{color:var(--bad);font-size:12.5px;margin:8px 0 0;line-height:1.45}
-.filecard .saved{color:var(--mut);font-size:12px;margin:8px 0 0;font-family:var(--mono);word-break:break-all}
-.filecard .go{margin-top:9px}
-.failhint{color:var(--mut);font-size:12px}
-
-#composer{border-top:1px solid var(--line);background:var(--sur);padding:10px 14px 12px}
-#composer .box{display:flex;gap:9px;align-items:flex-end}
-#composer textarea{min-height:42px;max-height:160px;border-radius:10px;padding:10px 12px}
-#composer .side{display:flex;flex-direction:column;gap:6px}
-#composer .bar{display:flex;align-items:center;gap:12px;margin-top:7px;color:var(--dim);font-size:12px}
-#composer .count.over{color:var(--bad)}
-#composer .why{flex:1;color:var(--mut)}
-#sendmsg{color:var(--bad);min-height:0}
-
-/* ── 대화상자 ───────────────────────────────────────────────────── */
-dialog{
-  border:1px solid var(--line);background:var(--sur);color:var(--fg);
-  border-radius:16px;padding:0;width:min(440px,calc(100vw - 32px));max-height:calc(100vh - 48px);
-}
-dialog::backdrop{background:rgba(6,7,11,.62)}
-dialog .head{display:flex;align-items:center;gap:10px;padding:16px 18px 10px}
-dialog .head h2{margin:0;font-size:16px;font-weight:600;flex:1}
-dialog .body{padding:0 18px 18px;overflow-y:auto;max-height:calc(100vh - 150px)}
-dialog .foot{display:flex;gap:8px;justify-content:flex-end;padding:0 18px 18px}
-.x{border:none;background:transparent;color:var(--mut);font-size:17px;line-height:1;cursor:pointer;padding:5px 7px;border-radius:7px}
-.x:hover{background:var(--sur2);color:var(--fg)}
-.sec{border-top:1px solid var(--line);padding:15px 0 4px}
-.sec:first-of-type{border-top:none;padding-top:4px}
-.sec h3{margin:0 0 4px;font-size:13.5px;font-weight:600;color:var(--mut)}
-.sec .fact{display:flex;justify-content:space-between;gap:12px;padding:2px 0}
-.sec .fact b{font-weight:500}
-.sec .fact span{color:var(--mut);text-align:right;word-break:break-all}
-.sec .acts{display:flex;gap:8px;flex-wrap:wrap;margin-top:9px}
-
-#words-grid{
-  display:grid;grid-template-columns:repeat(3,1fr);gap:9px;margin:6px 0 16px;
-}
-#words-grid li{
-  list-style:none;font-family:var(--mono);font-size:17px;
-  background:var(--sur2);border:1px solid var(--line);border-radius:9px;
-  padding:9px 10px;display:flex;gap:9px;align-items:baseline;
-}
-#words-grid li i{font-style:normal;color:var(--dim);font-size:12px;font-variant-numeric:tabular-nums;min-width:14px}
-#invite-code{
-  display:block;font-family:var(--mono);font-size:24px;letter-spacing:.1em;text-align:center;
-  background:var(--sur2);border:1px solid var(--line);border-radius:10px;padding:15px 8px;margin:4px 0 14px;
-  word-break:break-all;
-}
-
-/* ── 좁은 화면 ─────────────────────────────────────────────────── */
-@media (max-width:700px){
-  #stage-in{flex-direction:column}
-  .rail{width:auto;border-right:none;border-bottom:1px solid var(--line);max-height:44%}
-  #contacts{max-height:38vh}
-  .line{max-width:92%}
-}
-@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+<!--@css-->
 </style>
 </head>
 <body>
 
+<!-- 그림 글자(아이콘)는 전부 이 안에 두고 <use>로 꺼내 쓴다 — 바깥 파일 0 -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-mark" viewBox="0 0 24 24"><g class="a1"><path d="M12 3l7.8 4.5v9L12 21l-7.8-4.5v-9Z" fill="none" stroke="var(--accent)" stroke-width="1.3"/><path d="M12 3v9m0 0l7.8 4.5M12 12l-7.8 4.5" stroke="currentColor" stroke-width="1" opacity=".55"/></g></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+  <symbol id="i-gear" viewBox="0 0 24 24"><path d="M10.3 3h3.4l.5 2.3a7.4 7.4 0 0 1 1.9 1.1l2.2-.8 1.7 3-1.8 1.5a7.6 7.6 0 0 1 0 2.2l1.8 1.5-1.7 3-2.2-.8a7.4 7.4 0 0 1-1.9 1.1L13.7 21h-3.4l-.5-2.3a7.4 7.4 0 0 1-1.9-1.1l-2.2.8-1.7-3 1.8-1.5a7.6 7.6 0 0 1 0-2.2L4 10.6l1.7-3 2.2.8a7.4 7.4 0 0 1 1.9-1.1z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><circle cx="12" cy="12" r="2.8" fill="none" stroke="currentColor" stroke-width="1.6"/></symbol>
+  <symbol id="i-clip" viewBox="0 0 24 24"><path d="M20 11.5l-7.8 7.8a5 5 0 0 1-7.1-7.1l8.5-8.5a3.3 3.3 0 0 1 4.7 4.7l-8.5 8.5a1.7 1.7 0 0 1-2.4-2.4l7.8-7.8" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-send" viewBox="0 0 24 24"><path d="M4 12L20 4l-4 16-4.5-6.5L4 12z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M11.5 13.5L20 4" fill="none" stroke="currentColor" stroke-width="1.7"/></symbol>
+  <symbol id="i-more" viewBox="0 0 24 24"><circle cx="6" cy="12" r="1.6" fill="currentColor"/><circle cx="12" cy="12" r="1.6" fill="currentColor"/><circle cx="18" cy="12" r="1.6" fill="currentColor"/></symbol>
+  <symbol id="i-file" viewBox="0 0 24 24"><path d="M7 3h7l5 5v13H7z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M14 3v5h5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></symbol>
+  <symbol id="i-ticket" viewBox="0 0 24 24"><path d="M4 8a2 2 0 0 0 0 4 2 2 0 0 0 0 4h16a2 2 0 0 0 0-4 2 2 0 0 0 0-4z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M14 8v8" stroke="currentColor" stroke-width="1.6" stroke-dasharray="2 2"/></symbol>
+  <symbol id="i-in" viewBox="0 0 24 24"><path d="M10 7V5a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-6a2 2 0 0 1-2-2v-2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M3 12h11m-3-3 3 3-3 3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-block" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M6 6l12 12" stroke="currentColor" stroke-width="1.6"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 24 24"><path d="M5 7h14M9 7V4h6v3M7 7l1 13h8l1-13" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/></symbol>
+  <symbol id="i-key" viewBox="0 0 24 24"><circle cx="8" cy="14" r="4" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M11 11l8-8m-3 3 2.5 2.5M16 6l2.5 2.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></symbol>
+</svg>
+
 <!-- ① 서버 주소가 없다 -->
 <main id="stage-nohub" class="gate" hidden>
-  <p class="mark"><span class="dotmark"></span><strong>IRIS 메신저</strong><span>서버 주소</span></p>
+  <p class="brand"><svg class="mark"><use href="#i-mark"/></svg><span class="word">IRIS</span><span class="sub">메신저</span></p>
   <div class="card">
-    <h1>먼저 서버 주소를 넣으세요</h1>
+    <h1>서버 주소</h1>
     <p class="lead">메신저는 여러분이 정한 Supabase 주소로만 오갑니다. 주소와 anon key는 이 PC에만 저장됩니다.</p>
     <label class="field"><span>서버 주소</span><input id="nohub-url" type="text" inputmode="url" placeholder="https://xxxx.supabase.co" autocomplete="off"></label>
     <label class="field"><span>anon key</span><input id="nohub-key" type="text" placeholder="eyJhbGciOi…" autocomplete="off"></label>
     <button id="nohub-save" class="btn primary wide" type="button">저장하고 시작</button>
     <p class="err" id="nohub-err" role="alert"></p>
   </div>
-  <footer>anon key는 공개해도 되는 값입니다. service role key는 절대 넣지 마세요.</footer>
+  <p class="foot">anon key는 공개해도 되는 값입니다. service role key는 절대 넣지 마세요.</p>
 </main>
 
-<!-- ② 로그인 전 -->
+<!-- ② 로그인 전: 메일 주소 -->
 <main id="stage-out" class="gate" hidden>
-  <p class="mark"><span class="dotmark"></span><strong>IRIS 메신저</strong><span>로그인</span></p>
+  <p class="brand"><svg class="mark"><use href="#i-mark"/></svg><span class="word">IRIS</span><span class="sub">메신저</span></p>
   <div class="card">
-    <h1>메일로 로그인합니다</h1>
-    <p class="lead">비밀번호는 없습니다. 적어 주신 주소로 한 번 쓰고 버리는 코드를 보냅니다.</p>
+    <h1>시작하기</h1>
+    <p class="lead">메일 주소를 적으면 인증번호 6자리를 보내 드립니다. 이 PC에서는 한 번만 하면 됩니다.</p>
     <label class="field" for="out-email"><span>메일 주소</span></label>
     <input id="out-email" type="email" inputmode="email" placeholder="me@example.com" autocomplete="email">
-    <p class="hint">서버 주소: <span id="out-hub" class="fp" style="letter-spacing:0"></span></p>
     <label class="check" style="margin-top:16px">
       <input id="out-agree" type="checkbox">
       <span>만 14세 이상이며 처리방침을 읽었습니다</span>
     </label>
-    <p class="hint" style="margin:-8px 0 14px">처리방침 전문: <a href="https://github.com/Feynman520/d06-p04-iris-messenger/blob/main/hub/server/처리방침.md" target="_blank" rel="noopener">hub/server/처리방침.md</a></p>
-    <button id="out-send" class="btn primary wide" type="button" disabled>코드 받기</button>
+    <button id="out-send" class="btn primary wide" type="button" disabled>인증번호 받기</button>
     <p class="err" id="out-err" role="alert"></p>
   </div>
-  <footer>서버는 암호문만 지납니다. 글과 파일은 이 PC와 상대 PC에서만 열립니다.</footer>
+  <p class="foot">서버에는 암호문만 지납니다. 글과 파일은 이 PC와 상대 PC에서만 열립니다.<br>
+    <a id="link-privacy" href="https://github.com/Feynman520/d06-p04-iris-messenger/blob/main/hub/server/처리방침.md" target="_blank" rel="noopener">처리방침</a>
+    <span aria-hidden="true"> · </span>서버 <span id="out-hub" class="fp"></span></p>
 </main>
 
-<!-- ③ 코드 입력 -->
+<!-- ③ 인증번호 -->
 <main id="stage-code" class="gate" hidden>
-  <p class="mark"><span class="dotmark"></span><strong>IRIS 메신저</strong><span>코드 확인</span></p>
+  <p class="brand"><svg class="mark"><use href="#i-mark"/></svg><span class="word">IRIS</span><span class="sub">메신저</span></p>
   <div class="card">
-    <h1>메일함을 열어 보세요</h1>
-    <p class="lead"><span id="code-email"></span> 으로 보냈습니다.</p>
-    <label class="field" for="code-input"><span>코드 또는 링크 주소</span></label>
-    <input id="code-input" type="text" inputmode="text" placeholder="123456" autocomplete="one-time-code" spellcheck="false">
-    <p class="hint">메일에 6자리 코드가 있으면 코드를, 링크만 있으면 <strong>링크를 누르지 말고</strong> 링크 주소를 복사해 여기에 붙여 넣으세요.</p>
-    <p class="hint">코드를 5번 넘게 틀리면 잠시 잠깁니다. 그때는 새 코드를 받아 다시 하세요.</p>
+    <h1>인증번호 입력</h1>
+    <p class="lead"><span id="code-email"></span> 으로 보냈습니다. 메일에 적힌 6자리 숫자를 넣어 주세요.</p>
+    <input id="code-input" class="otp" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="6" placeholder="" autocomplete="one-time-code" spellcheck="false" aria-label="인증번호 6자리">
+    <details class="more" id="code-more">
+      <summary>메일에 숫자가 없나요?</summary>
+      <div class="inner">
+        <p class="hint" style="margin:0 0 8px">링크만 있으면 <strong>링크를 누르지 말고</strong> 링크 주소를 복사해 아래에 붙여 넣으세요.</p>
+        <input id="code-link" type="text" placeholder="https://…" spellcheck="false" autocomplete="off" aria-label="링크 주소">
+      </div>
+    </details>
     <button id="code-go" class="btn primary wide" type="button" style="margin-top:16px">확인</button>
-    <div class="split" style="margin-top:8px">
-      <button id="code-again" class="btn" type="button">코드 다시 받기</button>
-      <button id="code-back" class="btn" type="button">메일 주소 바꾸기</button>
+    <div class="row">
+      <button id="code-again" class="link" type="button">다시 받기</button>
+      <button id="code-back" class="link" type="button">메일 주소 바꾸기</button>
     </div>
     <p class="err" id="code-err" role="alert"></p>
   </div>
+  <p class="foot">인증번호는 10분 동안만 쓸 수 있습니다. 5번 넘게 틀리면 잠시 잠깁니다. 그때는 다시 받아 주세요.</p>
 </main>
 
-<!-- ④ 열쇠(신원) -->
+<!-- ④ 이름·열쇠(신원) -->
 <main id="stage-identity" class="gate" hidden>
-  <p class="mark"><span class="dotmark"></span><strong>IRIS 메신저</strong><span>열쇠</span></p>
+  <p class="brand"><svg class="mark"><use href="#i-mark"/></svg><span class="word">IRIS</span><span class="sub">메신저</span></p>
   <div class="card">
-    <div id="idn-mismatch" hidden style="border:1px solid var(--bad);border-radius:10px;padding:11px 13px;margin-bottom:16px">
-      <p style="margin:0 0 4px;color:var(--bad);font-weight:600">이 PC의 열쇠가 계정의 열쇠와 다릅니다</p>
-      <p style="margin:0;color:var(--mut);font-size:13px">아래 둘 중 하나만 할 수 있습니다. 이 계정의 12단어가 있으면 복원하세요.</p>
-      <div class="split" style="margin-top:10px">
+    <div id="idn-mismatch" class="notice bad" hidden>
+      <p><strong>이 PC의 열쇠가 계정의 열쇠와 다릅니다.</strong> 다른 PC에서 쓰던 계정이면 그때 적어 둔 12단어로 복원하세요. 12단어가 없으면 열쇠를 재설정할 수 있지만 예전에 받은 글은 다시 열 수 없고, 연락처마다 내 새 지문을 다시 확인해야 합니다.</p>
+      <div class="acts">
         <button id="idn-mm-restore" class="btn sm" type="button">12단어로 복원</button>
         <button id="idn-mm-reset" class="btn sm danger" type="button">열쇠 재설정</button>
       </div>
     </div>
-    <div id="idn-missing" hidden style="border:1px solid var(--warn);border-radius:10px;padding:11px 13px;margin-bottom:16px">
-      <p style="margin:0;color:var(--warn);font-size:13px">서버에 프로필이 없습니다. 이 PC의 열쇠를 등록하거나 12단어로 복원하세요</p>
+    <div id="idn-missing" class="notice" hidden>
+      <p>서버에 프로필이 없습니다. 이 PC의 열쇠를 등록하거나 12단어로 복원하세요.</p>
     </div>
     <div id="idn-normal">
-      <h1>이 PC의 열쇠를 만듭니다</h1>
-      <p class="lead">열쇠는 이 PC 밖으로 나가지 않습니다. 서버는 잠긴 글만 옮깁니다.</p>
+      <h1>상대에게 보일 이름</h1>
+      <p class="lead">글은 이 PC의 열쇠로만 열립니다. 열쇠는 12단어로 백업합니다.</p>
     </div>
-    <label class="field" for="idn-name"><span>상대에게 보일 이름</span></label>
-    <input id="idn-name" type="text" placeholder="함세준" autocomplete="off">
+    <label class="field" for="idn-name"><span>이름</span></label>
+    <input id="idn-name" type="text" placeholder="홍길동" autocomplete="off" maxlength="40">
     <div id="idn-words-wrap" hidden style="margin-top:14px">
       <label class="field" for="idn-words"><span>백업 문구 12단어(띄어쓰기로 구분)</span></label>
       <textarea id="idn-words" rows="3" spellcheck="false" placeholder="able absent …"></textarea>
     </div>
-    <div class="split" style="margin-top:16px">
-      <button id="idn-register" class="btn primary" type="button" hidden>이 PC의 열쇠로 등록</button>
-      <button id="idn-create" class="btn primary" type="button">새 열쇠 만들기</button>
-      <button id="idn-restore" class="btn" type="button">12단어로 복원</button>
+    <div style="margin-top:18px;display:flex;flex-direction:column;gap:8px">
+      <button id="idn-register" class="btn primary wide" type="button" hidden>이 PC의 열쇠로 등록</button>
+      <button id="idn-create" class="btn primary wide" type="button">시작</button>
+      <button id="idn-restore" class="link" type="button" style="align-self:center">12단어로 복원</button>
     </div>
     <p class="err" id="idn-err" role="alert"></p>
   </div>
-  <footer>백업 문구를 잃으면 다른 PC에서 같은 열쇠를 되살릴 수 없습니다.</footer>
 </main>
 
 <!-- ⑤ 본 화면 -->
 <main id="stage-in" hidden>
   <aside class="rail">
-    <div class="me">
-      <div class="row">
-        <span class="name" id="me-name">나</span>
-        <span class="conn"><span class="dot" id="conn-dot"></span><span id="conn-text">대기</span></span>
+    <div class="rail-head">
+      <p class="brand" style="margin:0"><svg class="mark"><use href="#i-mark"/></svg><span class="word">IRIS</span></p>
+      <div class="menu-wrap">
+        <button id="btn-plus" class="ic" type="button" title="초대" aria-haspopup="true" aria-expanded="false"><svg><use href="#i-plus"/></svg></button>
+        <div id="menu-plus" class="menu right" role="menu" hidden>
+          <button id="btn-invite" type="button" role="menuitem"><svg><use href="#i-ticket"/></svg>초대 코드 만들기</button>
+          <button id="btn-accept" type="button" role="menuitem"><svg><use href="#i-in"/></svg>초대 코드 입력</button>
+        </div>
       </div>
-      <span class="fp" id="me-fp"></span>
     </div>
+    <div class="rail-title"><span>연락처</span></div>
     <ul id="contacts"></ul>
-    <div class="rail-actions">
-      <button id="btn-invite" class="btn" type="button">초대 코드 만들기</button>
-      <button id="btn-accept" class="btn" type="button">초대 코드 입력</button>
-      <button id="btn-settings" class="btn quiet" type="button">설정</button>
+    <div class="me">
+      <div class="txt">
+        <span class="name" id="me-name">나</span>
+        <span class="fp" id="me-fp"></span>
+      </div>
+      <span class="conn" title="서버 연결 상태"><span class="dot" id="conn-dot"></span><span id="conn-text">대기</span></span>
+      <button id="btn-settings" class="ic" type="button" title="설정"><svg><use href="#i-gear"/></svg></button>
     </div>
   </aside>
   <section class="talk">
@@ -352,27 +150,25 @@ dialog .foot{display:flex;gap:8px;justify-content:flex-end;padding:0 18px 18px}
     <div id="chat"></div>
     <form id="composer" autocomplete="off">
       <div class="box">
+        <button id="btn-file" class="ic" type="button" title="파일 보내기"><svg><use href="#i-clip"/></svg></button>
         <textarea id="msg" rows="1" placeholder="글을 쓰고 Enter로 보냅니다" aria-label="message text"></textarea>
-        <div class="side">
-          <button id="btn-file" class="btn sm" type="button">파일</button>
-          <button id="btn-send" class="btn primary sm" type="submit">보내기</button>
-        </div>
+        <button id="btn-send" class="ic accent" type="submit" title="보내기 (Enter)"><svg><use href="#i-send"/></svg></button>
       </div>
       <div class="bar">
         <span class="why" id="composer-why"></span>
-        <span class="count" id="count">0 / 4000</span>
+        <p class="err" id="sendmsg" role="alert"></p>
+        <span class="count" id="count" hidden>0 / 4000</span>
       </div>
-      <p class="err" id="sendmsg" role="alert"></p>
       <input id="file-input" type="file" hidden aria-label="attach file">
     </form>
   </section>
 </main>
 
-<!-- ── 대화상자 ──────────────────────────────────────────────── -->
+<!-- 대화상자 5 -->
 <dialog id="words-dialog" aria-labelledby="words-title">
   <div class="head"><h2 id="words-title">백업 문구 12단어</h2><button class="x" type="button" data-close aria-label="close">✕</button></div>
   <div class="body">
-    <p class="hint" style="margin:0 0 12px">종이에 적어 안전한 곳에 두세요. 이 12단어가 있어야 다른 PC에서 같은 열쇠를 되살릴 수 있습니다. 복사 단추는 일부러 두지 않았습니다.</p>
+    <p>이 12단어가 열쇠 그 자체입니다. 종이에 순서대로 적어 안전한 곳에 두세요. 복사 단추는 일부러 두지 않았습니다.</p>
     <ol id="words-grid"></ol>
     <label class="check"><input id="words-ok" type="checkbox"><span>적어 두었습니다</span></label>
   </div>
@@ -383,16 +179,16 @@ dialog .foot{display:flex;gap:8px;justify-content:flex-end;padding:0 18px 18px}
   <div class="head"><h2 id="invite-title">초대 코드</h2><button class="x" type="button" data-close aria-label="close">✕</button></div>
   <div class="body">
     <code id="invite-code"></code>
-    <p class="hint" style="margin:0">이 코드를 상대에게 직접(카톡·말) 전하세요. 뒤 4자는 내 열쇠 지문입니다.</p>
+    <p>이 코드를 상대에게 직접(카톡·말) 전하세요. 뒤 4자는 내 열쇠 지문입니다.</p>
+    <p class="hint" style="margin:0">7일 동안 한 번만 쓸 수 있습니다. 상대가 넣으면 내 연락처에 요청이 뜹니다.</p>
   </div>
-  <div class="foot"><button class="btn" type="button" data-close>닫기</button></div>
 </dialog>
 
 <dialog id="accept-dialog" aria-labelledby="accept-title">
   <div class="head"><h2 id="accept-title">초대 코드 입력</h2><button class="x" type="button" data-close aria-label="close">✕</button></div>
   <div class="body">
-    <label class="field" for="accept-input"><span>받은 코드</span></label>
-    <input id="accept-input" type="text" placeholder="IRIS-XXXX-XXXX-XXXX" spellcheck="false" autocomplete="off">
+    <p>상대에게 받은 코드를 그대로 넣으세요.</p>
+    <input id="accept-input" type="text" class="fp" placeholder="IRIS-XXXX-XXXX-XXXX" spellcheck="false" autocomplete="off">
     <p class="hint">코드의 뒤 4자와 상대의 지문이 맞는지 확인합니다.</p>
     <p class="err" id="accept-err" role="alert"></p>
   </div>
@@ -407,51 +203,42 @@ dialog .foot{display:flex;gap:8px;justify-content:flex-end;padding:0 18px 18px}
   <div class="body">
     <div class="sec">
       <h3>계정</h3>
-      <div class="fact"><b>메일 주소</b><span id="set-email">—</span></div>
-      <div class="fact"><b>내 지문</b><span id="set-fp" class="fp">—</span></div>
-      <label class="field" for="set-name" style="margin-top:10px"><span>표시 이름</span></label>
-      <input id="set-name" type="text" placeholder="함세준" autocomplete="off" maxlength="40">
-      <p class="hint">이름만 바뀝니다. 열쇠와 지문은 그대로이고 연락처에게 경고도 가지 않습니다.</p>
-      <div class="acts">
-        <button id="set-rename" class="btn sm" type="button">이름 바꾸기</button>
-        <button id="set-logout" class="btn sm" type="button">로그아웃</button>
-        <button id="set-delete" class="btn sm danger" type="button">탈퇴</button>
-      </div>
+      <div class="row2"><span class="k">메일</span><span class="v" id="set-email">—</span></div>
+      <div class="row2"><span class="k">내 지문</span><span class="v fp" id="set-fp">—</span></div>
+      <div class="row2"><span class="k">이름</span><span class="v"><input id="set-name" type="text" placeholder="홍길동" autocomplete="off" maxlength="40"></span><span class="a"><button id="set-rename" class="btn sm" type="button">바꾸기</button></span></div>
     </div>
     <div class="sec">
-      <h3>백업 문구</h3>
-      <p class="hint" style="margin-top:0">12단어를 다시 확인합니다. 옆에 다른 사람이 없는지 먼저 보세요.</p>
-      <div class="acts">
-        <button id="set-words" class="btn sm" type="button">다시 보기</button>
-        <button id="set-reset" class="btn sm danger" type="button">열쇠 재설정</button>
-      </div>
+      <h3>열쇠</h3>
+      <div class="row2"><span class="k">백업 문구</span><span class="v hint" style="margin:0">12단어. 보려면 확인을 거칩니다</span><span class="a"><button id="set-words" class="btn sm" type="button">다시 보기</button></span></div>
     </div>
     <div class="sec">
       <h3>알림</h3>
-      <label class="check" style="margin:6px 0 0"><input id="set-mute" type="checkbox"><span>새 글이 와도 알리지 않기</span></label>
+      <label class="row2" style="cursor:pointer"><span class="k">새 글 알림</span><span class="v" style="text-align:left;color:var(--mut)">끄면 배지만 늘어납니다</span><input id="set-mute" class="sw" type="checkbox" title="새 글이 와도 알리지 않기"></label>
     </div>
     <div class="sec">
-      <h3>서버 주소</h3>
-      <label class="field" for="set-url"><span>주소</span></label>
-      <input id="set-url" type="text" placeholder="https://xxxx.supabase.co" autocomplete="off">
-      <label class="field" for="set-key" style="margin-top:10px"><span>anon key</span></label>
-      <input id="set-key" type="text" placeholder="서버를 바꿀 때만 채웁니다" autocomplete="off">
-      <p class="hint">저장하면 로그아웃됩니다. 다른 서버의 계정은 서로 다른 계정입니다.</p>
-      <div class="acts"><button id="set-hub" class="btn sm" type="button">서버 주소 저장</button></div>
+      <h3>서버</h3>
+      <div class="row2"><span class="k">주소</span><span class="v"><input id="set-url" type="text" placeholder="https://xxxx.supabase.co" autocomplete="off"></span></div>
+      <div class="row2"><span class="k">anon key</span><span class="v"><input id="set-key" type="text" placeholder="서버를 바꿀 때만 채웁니다" autocomplete="off"></span></div>
+      <div class="acts"><button id="set-hub" class="btn sm" type="button">서버 주소 저장</button><span class="hint" style="margin:0;align-self:center">저장하면 로그아웃됩니다</span></div>
     </div>
     <div class="sec">
-      <h3>이 모듈</h3>
-      <div class="fact"><b>판번호</b><span id="set-version">—</span></div>
-      <div class="fact"><b>처리방침</b><span><a href="https://github.com/Feynman520/d06-p04-iris-messenger/blob/main/hub/server/처리방침.md" target="_blank" rel="noopener">hub/server/처리방침.md</a></span></div>
+      <h3>정보</h3>
+      <div class="row2"><span class="k">판번호</span><span class="v" id="set-version">—</span></div>
+    </div>
+    <div class="sec">
+      <div class="dangerzone">
+        <button id="set-logout" class="link" type="button">로그아웃</button>
+        <button id="set-reset" class="link" type="button" style="color:var(--bad)">열쇠 재설정</button>
+        <button id="set-delete" class="link" type="button" style="color:var(--bad)">탈퇴</button>
+      </div>
       <p class="err" id="set-err" role="alert"></p>
     </div>
   </div>
-  <div class="foot"><button class="btn" type="button" data-close>닫기</button></div>
 </dialog>
 
 <dialog id="confirm-dialog" aria-labelledby="confirm-title">
   <div class="head"><h2 id="confirm-title">확인</h2><button class="x" type="button" data-close aria-label="close">✕</button></div>
-  <div class="body"><p id="confirm-text" style="margin:0"></p></div>
+  <div class="body"><p id="confirm-text" style="margin:0;color:var(--fg)"></p></div>
   <div class="foot">
     <button id="confirm-no" class="btn" type="button">그만두기</button>
     <button id="confirm-yes" class="btn primary" type="button">계속</button>
@@ -459,783 +246,7 @@ dialog .foot{display:flex;gap:8px;justify-content:flex-end;padding:0 18px 18px}
 </dialog>
 
 <script>
-/* ─────────────────────────────────────────────────────────────────────
-   화면 하나. 토큰(?t=)을 지닌 요청만 모듈 프로세스가 받아 준다.
-   - 서버와 이야기하는 창구는 api() 하나뿐이다(fetch를 여기 말고 쓰지 않는다).
-   - Escape는 만지지 않는다 — Face 서랍이 그 키로 닫히기 때문이다.
-   - alert/confirm/prompt 대신 <dialog>를 쓴다.
-   ───────────────────────────────────────────────────────────────────── */
-'use strict';
-
-var $ = function (id) { return document.getElementById(id); };
-var T = new URLSearchParams(location.search).get('t') || '';
-var STAGES = ['nohub', 'out', 'code', 'identity', 'in'];
-var ACCENTS = { indigo: '#6f7cff' };
-var STATUS_LABEL = {
-  pending_in: '받은 요청',
-  pending_out: '상대 수락 대기',
-  blocked_by_me: '내가 차단함',
-  blocked_me: '상대가 차단함'
-};
-var RESET_WARN = "재설정하면 이 PC의 옛 편지는 다시 열 수 없고 연락처들에게 '열쇠 바뀜' 경고가 갑니다";
-var CONN_LABEL = { online: '연결됨', slow: '느림', offline: '끊김', stopped: '대기' };
-
-// 서버·라이브러리가 주는 영어 오류를 사람 말로 바꾼다. 모르는 말은 그대로 보여 준다(숨기지 않는다).
-var ERRORS = {
-  'bad email': '메일 주소 형식이 아닙니다',
-  'bad code': '코드 또는 링크 형식이 아닙니다',
-  locked: '5회 틀려 잠겼습니다. 코드를 다시 받으세요',
-  'invalid or expired invite': '초대 코드가 틀렸거나 만료됐습니다',
-  'too many attempts, wait a minute': '시도가 너무 많습니다. 1분 뒤 다시 하세요',
-  'fingerprint mismatch': '지문이 맞지 않습니다. 코드를 다시 확인하세요(서버가 열쇠를 바꿔치기했을 수 있습니다)',
-  blocked: '차단된 상대입니다',
-  mismatch: '12단어가 이 계정의 열쇠와 다릅니다',
-  'display name required': '표시 이름을 넣으세요',
-  'display name too long': '표시 이름이 너무 깁니다(40자까지)',
-  'bad hub url or key': '서버 주소 또는 키가 올바르지 않습니다',
-  'internal error': '내부 오류가 났습니다. 다시 시도하세요',
-  'Token has expired or is invalid': '코드가 만료됐거나 틀렸습니다'
-};
-
-function human(e) {
-  var msg = (e && e.message) || String(e || '');
-  if (ERRORS[msg]) return ERRORS[msg];
-  if ((e && e.status === 0) || msg.indexOf('network:') === 0) return '서버에 연결할 수 없습니다';
-  if (msg.toLowerCase().indexOf('expired') >= 0) return '코드가 만료됐거나 틀렸습니다';
-  return msg;
-}
-
-var S = null;          // 마지막 state
-var peer = null;       // 열린 대화 상대
-var items = [];        // 열린 대화의 편지들
-var es = null;
-var refreshTimer = null;
-var autoPicked = false;
-var backToEmail = false;
-var sending = false;    // 보내는 중이면 입력칸·단추를 잠근다
-
-/* ── 창구 하나 ─────────────────────────────────────────────────── */
-async function api(p, opt) {
-  opt = opt || {};
-  var url = p + (p.indexOf('?') >= 0 ? '&' : '?') + 't=' + encodeURIComponent(T);
-  var hasBody = opt.json !== undefined || opt.raw !== undefined;
-  var init = { method: opt.method || (hasBody ? 'POST' : 'GET') };
-  if (opt.json !== undefined) {
-    init.headers = { 'Content-Type': 'application/json' };
-    init.body = JSON.stringify(opt.json);
-  } else if (opt.raw !== undefined) {
-    init.body = opt.raw;
-  }
-  var res;
-  try {
-    res = await fetch(url, init);
-  } catch (e) { // 모듈 프로세스가 내려갔거나 전선이 끊긴 경우
-    var net = new Error('network: ' + (e && e.message ? e.message : e));
-    net.status = 0;
-    throw net;
-  }
-  var data = {};
-  try { data = await res.json(); } catch (e) { data = {}; }
-  if (!res.ok) {
-    var err = new Error(data.error || ('요청이 실패했습니다 (' + res.status + ')'));
-    err.status = res.status;
-    throw err;
-  }
-  return data;
-}
-
-/* ── 조각 만들기 ───────────────────────────────────────────────── */
-function h(tag, attrs) {
-  var n = document.createElement(tag);
-  attrs = attrs || {};
-  for (var k in attrs) {
-    var v = attrs[k];
-    if (v === null || v === undefined || v === false) continue;
-    if (k === 'class') n.className = v;
-    else if (k === 'text') n.textContent = v;
-    else if (k.slice(0, 2) === 'on') n.addEventListener(k.slice(2), v);
-    else n.setAttribute(k, v === true ? '' : v);
-  }
-  for (var i = 2; i < arguments.length; i += 1) {
-    var kid = arguments[i];
-    if (!kid) continue;
-    n.appendChild(typeof kid === 'string' ? document.createTextNode(kid) : kid);
-  }
-  return n;
-}
-
-function say(id, msg) { var el = $(id); if (el) el.textContent = msg || ''; }
-
-function fmtTime(at) {
-  try { return new Date(at).toLocaleTimeString('ko-KR', { hour: 'numeric', minute: '2-digit' }); }
-  catch (e) { return ''; }
-}
-
-function fmtSize(n) {
-  n = Number(n) || 0;
-  if (n < 1024) return n + ' B';
-  if (n < 1024 * 1024) return (n / 1024).toFixed(0) + ' KB';
-  return (n / 1024 / 1024).toFixed(1) + ' MB';
-}
-
-function riskyRe() {
-  try { return new RegExp((S && S.riskyExt) || '$^', 'i'); } catch (e) { return /$^/; }
-}
-
-function contactOf(id) {
-  var list = (S && S.contacts) || [];
-  for (var i = 0; i < list.length; i += 1) if (list[i].id === id) return list[i];
-  return null;
-}
-
-/* ── 테마 ──────────────────────────────────────────────────────── */
-function applyTheme(t) {
-  var mode = t && t.mode === 'light' ? 'light' : 'dark';
-  document.documentElement.setAttribute('data-mode', mode);
-  var color = null;
-  var id = t && t.id ? String(t.id) : '';
-  if (ACCENTS[id]) color = ACCENTS[id];
-  else if (id && window.CSS && CSS.supports && CSS.supports('color', id)) color = id;
-  document.documentElement.style.setProperty('--accent', color || ACCENTS.indigo);
-}
-
-/* ── 전체 그리기 ───────────────────────────────────────────────── */
-function render() {
-  if (!S) return;
-  applyTheme(S.theme);
-  var stage = S.keyMismatch ? 'identity' : (S.stage || 'out');
-  if (S.stage !== 'code') backToEmail = false;
-  if (stage === 'code' && backToEmail) stage = 'out';
-  for (var i = 0; i < STAGES.length; i += 1) {
-    var el = $('stage-' + STAGES[i]);
-    if (el) el.hidden = STAGES[i] !== stage;
-  }
-  // 열쇠가 어긋난 상태에서는 "새 열쇠 만들기"를 숨긴다 — 그 길도 이 PC의 옛 열쇠를 지우기 때문에,
-  // 물어보지 않고 누를 수 있는 단추로 두면 안 된다. 남는 길은 ① 12단어 복원 ② 확인을 거친 재설정뿐.
-  $('idn-mismatch').hidden = !S.keyMismatch;
-  $('idn-normal').hidden = !!S.keyMismatch;
-  $('idn-create').hidden = !!S.keyMismatch;
-  if (S.keyMismatch) $('idn-words-wrap').hidden = false;
-  // 서버에만 프로필이 없는 경우: 이 PC의 열쇠를 그대로 올리는 길을 하나 더 보여 준다(열쇠는 그대로다).
-  $('idn-missing').hidden = !S.profileMissing;
-  $('idn-register').hidden = !S.profileMissing;
-  if (stage === 'out') say('out-hub', (S.hub && S.hub.url) || '아직 없음');
-  if (stage === 'code') say('code-email', S.email || '메일 주소');
-  if (stage !== 'in') return;
-
-  say('me-name', S.displayName || '나');
-  say('me-fp', S.fingerprint ? '지문 ' + S.fingerprint : '');
-  paintConn();
-  paintHub();
-  // 서랍을 열면 곧바로 읽을 것이 보이도록 첫 수락된 연락처 하나만 열어 준다(처음 한 번).
-  if (!autoPicked && !peer) {
-    var cs = S.contacts || [];
-    for (var k = 0; k < cs.length; k += 1) {
-      if (cs[k].status === 'accepted') { autoPicked = true; openPeer(cs[k].id); break; }
-    }
-  }
-  renderContacts();
-  renderPeerbar();
-  paintComposer();
-}
-
-function paintConn() {
-  if (!S) return;
-  var c = S.connection || 'stopped';
-  $('conn-dot').className = 'dot ' + c;
-  say('conn-text', CONN_LABEL[c] || c);
-}
-
-function paintHub() {
-  var b = $('hub-banner');
-  if (!S.hubMismatch) { b.hidden = true; return; }
-  b.hidden = false;
-  b.textContent = S.hubMismatch === 'hub_old'
-    ? '서버가 이 모듈보다 낡았습니다. 서버를 올리기 전까지는 새 글을 주고받지 않습니다.'
-    : '이 모듈이 서버보다 낡았습니다. 모듈을 새로 받기 전까지는 새 글을 주고받지 않습니다.';
-}
-
-function renderContacts() {
-  var box = $('contacts');
-  box.textContent = '';
-  var list = (S.contacts || []).slice().sort(function (a, b) {
-    return String(a.displayName || '').localeCompare(String(b.displayName || ''), 'ko');
-  });
-  if (!list.length) {
-    box.appendChild(h('li', { class: 'empty', text: '아직 연락처가 없습니다. 아래에서 초대 코드를 만들어 상대에게 전하세요.' }));
-    return;
-  }
-  var unread = (S.unread && S.unread.byPeer) || {};
-  list.forEach(function (c) {
-    var top = h('div', { class: 'top' },
-      h('span', { class: 'nm', text: c.displayName || '이름 모름' }),
-      unread[c.id] ? h('span', { class: 'unread', text: String(unread[c.id]) }) : null
-    );
-    var sub = h('div', { class: 'sub' },
-      h('span', { class: 'fp', text: c.fingerprint ? c.fingerprint.slice(0, 4) : '····' }),
-      STATUS_LABEL[c.status] ? h('span', { class: 'tag' + (c.status === 'pending_in' ? ' warn' : ''), text: STATUS_LABEL[c.status] }) : null,
-      c.keyChanged ? h('span', { class: 'tag bad', text: '⚠ 열쇠 바뀜' }) : null,
-      (!c.keyChanged && c.needsVerify) ? h('span', { class: 'tag warn', text: '지문 재확인 필요' }) : null
-    );
-    var btn = h('button', {
-      class: 'contact', type: 'button', 'aria-current': peer === c.id ? 'true' : 'false',
-      onclick: function () { openPeer(c.id); }
-    }, top, sub);
-    box.appendChild(h('li', {}, btn));
-  });
-}
-
-function renderPeerbar() {
-  var bar = $('peerbar');
-  bar.textContent = '';
-  var c = peer ? contactOf(peer) : null;
-  if (!c) {
-    bar.appendChild(h('div', { class: 'who' }, h('h2', { text: '대화를 고르세요' }),
-      h('p', { class: 'verify', text: '왼쪽 목록에서 상대를 누르면 그 사람과의 기록이 열립니다.' })));
-    return;
-  }
-  var fp = c.fingerprint || '········';
-  var who = h('div', { class: 'who' },
-    h('h2', { text: c.displayName || '이름 모름' }),
-    h('span', { class: 'fp-big' }, document.createTextNode(fp.slice(0, 4)), h('b', { text: fp.slice(4) })),
-    h('p', { class: 'verify', text: '상대와 직접 대조하세요. 이름은 흉내 낼 수 있지만 지문은 못 합니다.' }),
-    c.keyChanged ? h('p', { class: 'verify', style: 'color:var(--bad)', text: '상대의 열쇠가 바뀌었습니다. 새 지문을 상대에게 직접 확인한 뒤에만 받아들이세요.' }) : null,
-    (!c.keyChanged && c.needsVerify) ? h('p', { class: 'verify', style: 'color:var(--warn)', text: '이 열쇠는 서버에서 받아 그대로 고정한 것입니다. 지문을 상대에게 직접 확인한 뒤 아래 단추를 누르세요.' }) : null,
-    c.status === 'pending_out' ? h('p', { class: 'verify', text: '상대 수락 대기 중입니다.' }) : null,
-    c.status === 'blocked_me' ? h('p', { class: 'verify', text: '상대가 나를 차단했습니다.' }) : null
-  );
-  var acts = h('div', { class: 'acts' });
-  var add = function (label, action, cls) {
-    acts.appendChild(h('button', {
-      class: 'btn sm' + (cls ? ' ' + cls : ''), type: 'button',
-      onclick: function () { contactAction(c.id, action, label); }
-    }, label));
-  };
-  if (c.keyChanged || c.needsVerify) add('새 지문 확인', 'trust-key', 'danger');
-  if (c.status === 'pending_in') { add('수락', 'accept'); add('거절', 'reject', 'danger'); }
-  else if (c.status === 'accepted') { add('차단', 'block', 'danger'); add('삭제', 'remove', 'danger'); }
-  else if (c.status === 'blocked_by_me') { add('차단 풀기', 'unblock'); add('삭제', 'remove', 'danger'); }
-  else if (c.status === 'pending_out' || c.status === 'blocked_me') { add('삭제', 'remove', 'danger'); }
-  bar.appendChild(who);
-  bar.appendChild(acts);
-}
-
-function renderChat() {
-  var box = $('chat');
-  box.textContent = '';
-  if (!peer) {
-    box.appendChild(h('p', { class: 'blank', text: '왼쪽에서 대화할 사람을 고르세요.' }));
-    return;
-  }
-  if (!items.length) {
-    box.appendChild(h('p', { class: 'blank', text: '아직 주고받은 글이 없습니다. 아래에 첫 글을 써 보세요.' }));
-    return;
-  }
-  var re = riskyRe();
-  items.forEach(function (it) {
-    var line = h('div', { class: 'line ' + (it.dir === 'out' ? 'out' : 'in') });
-    if (it.kind === 'file') line.appendChild(fileCard(it, re));
-    else line.appendChild(h('div', { class: 'msg', text: it.text || '' }));
-    var meta = h('div', { class: 'meta' }, h('span', { text: fmtTime(it.at) }));
-    if (it.dir === 'out') {
-      if (it.status === 'pending') meta.appendChild(h('span', { text: '보내는 중' }));
-      else if (it.status === 'sent') meta.appendChild(h('span', { text: '보냄' }));
-      else if (it.status === 'failed') meta.appendChild(h('span', { class: 'fail', text: '실패 · ' + (it.error || '까닭 모름') }));
-    } else if (it.status === 'unsupported') {
-      meta.appendChild(h('span', { class: 'fail', text: '이 모듈이 열 수 없는 형식입니다' }));
-    }
-    line.appendChild(meta);
-    if (it.status === 'failed' && it.kind === 'file') {
-      line.appendChild(h('p', { class: 'failhint', text: '다시 보내려면 파일을 다시 첨부해 보내세요' }));
-    }
-    box.appendChild(line);
-  });
-  box.scrollTop = box.scrollHeight;
-}
-
-function fileCard(it, re) {
-  var f = it.file || {};
-  var card = h('div', { class: 'filecard' },
-    h('div', { class: 'fname', text: f.name || '파일' }),
-    h('div', { class: 'fsize', text: fmtSize(f.size) })
-  );
-  if (re.test(String(f.name || ''))) {
-    card.appendChild(h('p', { class: 'risky', text: '실행되는 파일일 수 있습니다. 믿는 사람이 보낸 것만, 무엇인지 직접 물어본 뒤에 여세요.' }));
-  }
-  if (f.savedPath) {
-    card.appendChild(h('p', { class: 'saved', text: f.savedPath }));
-  } else if (it.dir === 'in' && it.status !== 'failed') {
-    card.appendChild(h('div', { class: 'go' }, h('button', {
-      class: 'btn sm', type: 'button',
-      onclick: function (e) { getFile(it.id, e.currentTarget); }
-    }, '받기')));
-  }
-  if (it.fetchError) card.appendChild(h('p', { class: 'risky', text: it.fetchError }));
-  return card;
-}
-
-function paintComposer() {
-  var c = peer ? contactOf(peer) : null;
-  var why = '';
-  if (!c) why = '왼쪽에서 대화할 사람을 고르세요.';
-  else if (c.status === 'pending_in') why = '먼저 이 요청을 수락하세요.';
-  else if (c.status === 'pending_out') why = '상대가 수락해야 글을 보낼 수 있습니다.';
-  else if (c.status === 'blocked_by_me') why = '차단을 풀어야 보낼 수 있습니다.';
-  else if (c.status === 'blocked_me') why = '상대가 차단해 보낼 수 없습니다.';
-  else if (S.hubMismatch) why = '서버와 판이 맞지 않아 지금은 보낼 수 없습니다.';
-  var ok = !why && !sending;
-  $('msg').disabled = !ok;
-  $('btn-send').disabled = !ok;
-  $('btn-file').disabled = !ok;
-  say('composer-why', why);
-  countText();
-}
-
-function countText() {
-  var max = (S && S.limits && S.limits.textMax) || 4000;
-  var n = Array.from($('msg').value).length;
-  var el = $('count');
-  el.textContent = n + ' / ' + max;
-  el.className = 'count' + (n > max ? ' over' : '');
-}
-
-/* ── 대화 열기·읽음 ────────────────────────────────────────────── */
-async function openPeer(id) {
-  peer = id;
-  items = [];
-  say('sendmsg', '');
-  renderContacts();
-  renderPeerbar();
-  paintComposer();
-  renderChat();
-  try {
-    var r = await api('/api/messages/' + encodeURIComponent(id));
-    if (peer !== id) return;
-    items = r.items || [];
-    renderChat();
-  } catch (e) {
-    say('sendmsg', human(e));
-  }
-  readOpen();
-}
-
-// force=true면 state의 안 읽은 수를 보지 않고 곧장 읽음 처리한다. 새 편지가 방금 온 순간에는
-// S.unread가 아직 낡아(120ms 묶음 갱신 전) 첫 통을 놓치기 때문이다. 한 번 더 부르는 건 해가 없다.
-async function readOpen(force) {
-  if (!peer) return;
-  if (document.visibilityState !== 'visible') return;
-  var by = (S && S.unread && S.unread.byPeer) || {};
-  if (!force && !by[peer]) return;
-  try { await api('/api/read', { json: { peer: peer } }); } catch (e) { /* 읽음 표시는 실패해도 조용히 */ }
-  scheduleRefresh();
-}
-
-function upsert(item) {
-  for (var i = 0; i < items.length; i += 1) {
-    if (items[i].id === item.id) { items[i] = Object.assign({}, items[i], item); return; }
-  }
-  items.push(item);
-}
-
-function scheduleRefresh() {
-  if (refreshTimer) return;
-  refreshTimer = setTimeout(async function () {
-    refreshTimer = null;
-    try { S = await api('/api/state'); render(); } catch (e) { /* 다음 사건에 다시 */ }
-  }, 120);
-}
-
-/* ── 보내기 ────────────────────────────────────────────────────── */
-// 상한은 state().limits에서 온다 — 숫자를 화면에 박아 두지 않는다.
-function fileMax() { return (S && S.limits && S.limits.fileMax) || 10 * 1024 * 1024; }
-function tooBigText() { return '파일이 너무 큽니다(' + Math.round(fileMax() / 1048576) + 'MB)'; }
-
-// 보내는 동안 칸과 단추를 잠근다(Enter를 두 번 눌러도 같은 글이 두 통 나가지 않게).
-function lockSend(on) {
-  sending = on;
-  if (on) {
-    $('msg').disabled = true;
-    $('btn-send').disabled = true;
-    $('btn-file').disabled = true;
-    return;
-  }
-  paintComposer();                       // 상대 상태에 따라 다시 열거나 닫는다
-  if (!$('msg').disabled) $('msg').focus();
-}
-
-async function sendText() {
-  if (sending) return;
-  var text = $('msg').value;
-  if (!peer || !text.trim()) return;
-  var max = (S.limits && S.limits.textMax) || 4000;
-  if (Array.from(text).length > max) { say('sendmsg', '글이 너무 깁니다(' + max + '자)'); return; }
-  say('sendmsg', '');
-  lockSend(true);
-  try {
-    var r = await api('/api/send', { json: { peer: peer, text: text } });
-    $('msg').value = '';
-    $('msg').style.height = 'auto';
-    countText();
-    if (r.item) { upsert(r.item); renderChat(); }
-  } catch (e) {
-    say('sendmsg', human(e));
-  }
-  lockSend(false);
-}
-
-async function sendFile(file) {
-  if (sending || !peer || !file) return;
-  if (file.size > fileMax()) { say('sendmsg', tooBigText()); return; }
-  say('sendmsg', '보내는 중: ' + file.name);
-  lockSend(true);
-  try {
-    var q = '/api/send-file?peer=' + encodeURIComponent(peer) + '&name=' + encodeURIComponent(file.name);
-    var r = await api(q, { raw: file });
-    say('sendmsg', '');
-    if (r.item) { upsert(r.item); renderChat(); }
-  } catch (e) {
-    say('sendmsg', e.status === 413 ? tooBigText() : human(e));
-  }
-  lockSend(false);
-}
-
-async function getFile(id, btn) {
-  btn.disabled = true;
-  btn.textContent = '받는 중';
-  try {
-    var r = await api('/api/file/' + encodeURIComponent(id), { method: 'POST' });
-    for (var i = 0; i < items.length; i += 1) {
-      if (items[i].id !== id) continue;
-      items[i].file = Object.assign({}, items[i].file, { savedPath: r.path });
-      delete items[i].fetchError;
-    }
-  } catch (e) {
-    for (var j = 0; j < items.length; j += 1) if (items[j].id === id) items[j].fetchError = human(e);
-  }
-  renderChat();
-}
-
-/* ── 연락처 ────────────────────────────────────────────────────── */
-async function contactAction(id, action, label) {
-  if (action === 'remove' || action === 'block' || action === 'reject' || action === 'trust-key') {
-    var text = action === 'trust-key'
-      ? '상대의 새 지문을 받아들입니다. 상대에게 직접 물어 지문이 맞는지 먼저 확인했나요?'
-      : '이 연락처를 ' + label + '합니다. 되돌리려면 다시 초대 코드를 주고받아야 할 수 있습니다.';
-    var yes = await ask(text, label);
-    if (!yes) return;
-  }
-  try {
-    await api('/api/contacts/' + encodeURIComponent(id) + '/' + action, { method: 'POST' });
-    if (action === 'remove' || action === 'reject') { peer = null; items = []; renderChat(); }
-    scheduleRefresh();
-  } catch (e) {
-    say('sendmsg', human(e));
-  }
-}
-
-/* ── 대화상자 도우미 ───────────────────────────────────────────── */
-var askResolve = null;
-
-function ask(text, okLabel) {
-  say('confirm-text', text);
-  $('confirm-yes').textContent = okLabel || '계속';
-  $('confirm-dialog').returnValue = ''; // 지난번 답이 남아 있지 않게 비운다
-  $('confirm-dialog').showModal();
-  return new Promise(function (resolve) { askResolve = resolve; });
-}
-
-$('confirm-dialog').addEventListener('close', function () {
-  var r = askResolve;
-  askResolve = null;
-  if (r) r($('confirm-dialog').returnValue === 'yes');
-});
-$('confirm-yes').addEventListener('click', function () { $('confirm-dialog').close('yes'); });
-$('confirm-no').addEventListener('click', function () { $('confirm-dialog').close('no'); });
-
-Array.prototype.forEach.call(document.querySelectorAll('[data-close]'), function (b) {
-  b.addEventListener('click', function () { b.closest('dialog').close(); });
-});
-
-function showWords(words) {
-  var g = $('words-grid');
-  g.textContent = '';
-  (words || []).forEach(function (w, i) {
-    g.appendChild(h('li', {}, h('i', { text: String(i + 1) }), h('span', { text: w })));
-  });
-  $('words-ok').checked = false;
-  $('words-go').disabled = true;
-  $('words-dialog').showModal();
-}
-
-$('words-ok').addEventListener('change', function (e) { $('words-go').disabled = !e.target.checked; });
-$('words-go').addEventListener('click', function () { $('words-dialog').close(); });
-
-/* ── 단계별 손잡이 ─────────────────────────────────────────────── */
-$('nohub-save').addEventListener('click', async function () {
-  say('nohub-err', '');
-  try {
-    await api('/api/settings', { json: { hubUrl: $('nohub-url').value.trim(), anonKey: $('nohub-key').value.trim() } });
-    scheduleRefresh();
-  } catch (e) { say('nohub-err', human(e)); }
-});
-
-$('out-agree').addEventListener('change', function (e) { $('out-send').disabled = !e.target.checked; });
-$('out-send').addEventListener('click', async function () {
-  say('out-err', '');
-  $('out-send').disabled = true;
-  try {
-    await api('/api/login/email', { json: { email: $('out-email').value.trim() } });
-    backToEmail = false;
-    scheduleRefresh();
-  } catch (e) { say('out-err', human(e)); }
-  $('out-send').disabled = !$('out-agree').checked;
-});
-
-$('code-go').addEventListener('click', async function () {
-  say('code-err', '');
-  $('code-go').disabled = true;
-  try {
-    await api('/api/login/code', { json: { email: S.email, code: $('code-input').value.trim() } });
-    $('code-input').value = '';
-    scheduleRefresh();
-  } catch (e) { say('code-err', human(e)); }
-  $('code-go').disabled = false;
-});
-$('code-again').addEventListener('click', async function () {
-  say('code-err', '');
-  try { await api('/api/login/email', { json: { email: S.email } }); say('code-err', '새 코드를 보냈습니다. 메일함을 확인하세요.'); }
-  catch (e) { say('code-err', human(e)); }
-});
-$('code-back').addEventListener('click', function () { backToEmail = true; render(); });
-
-function showWordsArea() {
-  $('idn-words-wrap').hidden = false;
-  $('idn-words').focus();
-}
-
-$('idn-create').addEventListener('click', async function () {
-  say('idn-err', '');
-  var name = $('idn-name').value.trim();
-  if (!name) { say('idn-err', '상대에게 보일 이름을 적어 주세요.'); return; }
-  $('idn-create').disabled = true;
-  try {
-    var r = await api('/api/identity', { json: { displayName: name } });
-    if (r.words) showWords(r.words);
-    scheduleRefresh();
-  } catch (e) { say('idn-err', human(e)); }
-  $('idn-create').disabled = false;
-});
-
-$('idn-register').addEventListener('click', async function () {
-  say('idn-err', '');
-  var name = $('idn-name').value.trim() || (S && S.displayName) || '';
-  if (!name) { say('idn-err', '상대에게 보일 이름을 적어 주세요.'); return; }
-  $('idn-register').disabled = true;
-  try {
-    await api('/api/identity/register', { json: { displayName: name } });
-    scheduleRefresh();
-  } catch (e) { say('idn-err', human(e)); }
-  $('idn-register').disabled = false;
-});
-
-$('idn-restore').addEventListener('click', async function () {
-  say('idn-err', '');
-  if ($('idn-words-wrap').hidden) { showWordsArea(); return; }
-  var words = $('idn-words').value.trim().split(/\s+/).filter(Boolean);
-  if (words.length !== 12) { say('idn-err', '12단어를 띄어쓰기로 구분해 적어 주세요(지금 ' + words.length + '개).'); return; }
-  $('idn-restore').disabled = true;
-  try {
-    await api('/api/identity', { json: { displayName: $('idn-name').value.trim(), words: words } });
-    $('idn-words').value = '';
-    scheduleRefresh();
-  } catch (e) { say('idn-err', human(e)); }
-  $('idn-restore').disabled = false;
-});
-
-$('idn-mm-restore').addEventListener('click', function () { showWordsArea(); });
-$('idn-mm-reset').addEventListener('click', async function () {
-  var yes = await ask(RESET_WARN, '열쇠 재설정');
-  if (!yes) return;
-  try {
-    var r = await api('/api/identity/reset', { json: { displayName: $('idn-name').value.trim() || (S && S.displayName) || '' } });
-    if (r.words) showWords(r.words);
-    scheduleRefresh();
-  } catch (e) { say('idn-err', human(e)); }
-});
-
-/* ── 본 화면 손잡이 ────────────────────────────────────────────── */
-$('btn-invite').addEventListener('click', async function () {
-  try {
-    var r = await api('/api/invite', { method: 'POST' });
-    say('invite-code', r.code || '');
-    $('invite-dialog').showModal();
-  } catch (e) { say('sendmsg', human(e)); }
-});
-
-$('btn-accept').addEventListener('click', function () {
-  say('accept-err', '');
-  $('accept-input').value = '';
-  $('accept-dialog').showModal();
-});
-
-$('accept-go').addEventListener('click', async function () {
-  say('accept-err', '');
-  $('accept-go').disabled = true;
-  try {
-    var r = await api('/api/invite/accept', { json: { code: $('accept-input').value.trim() } });
-    $('accept-dialog').close();
-    scheduleRefresh();
-    if (r.id) openPeer(r.id);
-  } catch (e) { say('accept-err', human(e)); }
-  $('accept-go').disabled = false;
-});
-
-$('btn-file').addEventListener('click', function () { $('file-input').click(); });
-$('file-input').addEventListener('change', function (e) {
-  var f = e.target.files && e.target.files[0];
-  e.target.value = '';
-  if (f) sendFile(f);
-});
-
-$('composer').addEventListener('submit', function (e) { e.preventDefault(); sendText(); });
-$('msg').addEventListener('input', function () {
-  countText();
-  var el = $('msg');
-  el.style.height = 'auto';
-  el.style.height = Math.min(el.scrollHeight, 160) + 'px';
-});
-$('msg').addEventListener('keydown', function (e) {
-  // 여기서 보는 키는 Enter 하나뿐이다(서랍을 닫는 키는 우리가 손대지 않는다).
-  if (e.key !== 'Enter' || e.shiftKey || e.isComposing) return;
-  e.preventDefault();
-  if (sending) return;   // 보내는 중에 또 누른 Enter는 버린다
-  sendText();
-});
-
-document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'visible') readOpen(); });
-
-/* ── 설정 ──────────────────────────────────────────────────────── */
-$('btn-settings').addEventListener('click', function () {
-  say('set-err', '');
-  say('set-email', (S && S.email) || '—');
-  say('set-fp', (S && S.fingerprint) || '—');
-  $('set-name').value = (S && S.displayName) || '';
-  say('set-version', (S && S.version) || '—');
-  $('set-mute').checked = !!(S && S.notifyMuted);
-  $('set-url').value = (S && S.hub && S.hub.url) || '';
-  $('set-key').value = '';
-  $('settings-dialog').showModal();
-});
-
-$('set-mute').addEventListener('change', async function (e) {
-  try { await api('/api/settings', { json: { notifyMuted: e.target.checked } }); scheduleRefresh(); }
-  catch (err) { say('set-err', human(err)); }
-});
-
-$('set-rename').addEventListener('click', async function () {
-  say('set-err', '');
-  $('set-rename').disabled = true;
-  try {
-    await api('/api/identity/rename', { json: { displayName: $('set-name').value.trim() } });
-    say('set-err', '바꿨습니다');
-    scheduleRefresh();
-  } catch (e) { say('set-err', human(e)); }
-  $('set-rename').disabled = false;
-});
-
-$('set-hub').addEventListener('click', async function () {
-  say('set-err', '');
-  var url = $('set-url').value.trim();
-  var key = $('set-key').value.trim();
-  // 둘은 짝이다 — key 칸이 비었으면 서버 주소를 아예 보내지 않는다(반쪽만 보내면 400이 난다).
-  if (!key) { say('set-err', '서버를 바꾸려면 anon key도 함께 넣으세요.'); return; }
-  var yes = await ask('서버 주소를 바꾸면 지금 계정에서 로그아웃됩니다. 계속할까요?', '저장하고 로그아웃');
-  if (!yes) return;
-  try {
-    await api('/api/settings', { json: { hubUrl: url, anonKey: key } });
-    $('settings-dialog').close();
-    scheduleRefresh();
-  } catch (e) { say('set-err', human(e)); }
-});
-
-$('set-words').addEventListener('click', async function () {
-  say('set-err', '');
-  var yes = await ask('백업 문구 12단어를 화면에 그대로 보여 줍니다. 옆에 다른 사람이나 화면 녹화가 없는지 먼저 확인하세요.', '보여 주기');
-  if (!yes) return;
-  try {
-    var r = await api('/api/identity/words?confirm=1');
-    showWords(r.words);
-  } catch (e) { say('set-err', human(e)); }
-});
-
-$('set-reset').addEventListener('click', async function () {
-  say('set-err', '');
-  var yes = await ask(RESET_WARN, '열쇠 재설정');
-  if (!yes) return;
-  try {
-    var r = await api('/api/identity/reset', { json: { displayName: (S && S.displayName) || '' } });
-    if (r.words) showWords(r.words);
-    scheduleRefresh();
-  } catch (e) { say('set-err', human(e)); }
-});
-
-$('set-logout').addEventListener('click', async function () {
-  say('set-err', '');
-  var yes = await ask('이 PC에서 로그아웃합니다. 열쇠는 남아 있어 같은 계정으로 다시 들어오면 그대로 씁니다.', '로그아웃');
-  if (!yes) return;
-  try { await api('/api/logout', { method: 'POST' }); $('settings-dialog').close(); peer = null; items = []; autoPicked = false; scheduleRefresh(); }
-  catch (e) { say('set-err', human(e)); }
-});
-
-$('set-delete').addEventListener('click', async function () {
-  say('set-err', '');
-  var yes = await ask('메시지·열쇠·로그인 정보가 이 PC와 서버에서 지워집니다. 되돌릴 수 없습니다.', '탈퇴');
-  if (!yes) return;
-  try { await api('/api/delete-account', { method: 'POST' }); $('settings-dialog').close(); peer = null; items = []; autoPicked = false; scheduleRefresh(); }
-  catch (e) { say('set-err', human(e)); }
-});
-
-/* ── 실시간 ────────────────────────────────────────────────────── */
-function connect() {
-  es = new EventSource('/api/events?t=' + encodeURIComponent(T));
-  es.addEventListener('state', function (e) {
-    try { S = JSON.parse(e.data); } catch (err) { return; }
-    render();
-  });
-  es.addEventListener('message', function (e) {
-    var d;
-    try { d = JSON.parse(e.data); } catch (err) { return; }
-    if (d && d.item && d.peer === peer) {
-      upsert(d.item);
-      renderChat();
-      if (d.item.dir === 'in' && document.visibilityState === 'visible') readOpen(true);
-    }
-    scheduleRefresh();
-  });
-  es.addEventListener('badge', function () { scheduleRefresh(); });
-  es.addEventListener('connection', function (e) {
-    var d;
-    try { d = JSON.parse(e.data); } catch (err) { return; }
-    if (S && d && d.state) { S.connection = d.state; paintConn(); }
-  });
-  es.onerror = function () { /* EventSource가 스스로 다시 붙는다 */ };
-}
-
-/* ── 시작 ──────────────────────────────────────────────────────── */
-(async function boot() {
-  try {
-    S = await api('/api/state');
-  } catch (e) {
-    document.body.appendChild(h('main', { class: 'gate' },
-      h('div', { class: 'card' },
-        h('h1', { text: '화면을 열 수 없습니다' }),
-        h('p', { class: 'lead', text: human(e) }),
-        h('p', { class: 'hint', text: '서랍을 닫았다 다시 열어 보세요.' }))));
-    return;
-  }
-  render();
-  connect();
-}());
+<!--@js-->
 </script>
 </body>
 </html>

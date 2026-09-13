@@ -106,7 +106,7 @@ test('③ /api/state 는 로그인 전 stage "out" + 화면이 필요한 값을 
   assert.equal(s.hub.custom, false);
   assert.match(s.hub.url, /^https?:\/\//);
   // 화면이 다른 설정 없이 살아가도록: 테마·판번호·한도·위험 확장자
-  assert.equal(s.version, '0.1.0');
+  assert.equal(s.version, JSON.parse(fssync.readFileSync(new URL('../../package.json', import.meta.url), 'utf8')).version); // 판번호는 package.json 하나에서만
   assert.deepEqual(s.limits, { textMax: TEXT_MAX, fileMax: FILE_MAX });
   assert.ok(new RegExp(s.riskyExt, 'i').test('setup.exe'));
   assert.equal(Object.hasOwn(s, 'theme'), true);

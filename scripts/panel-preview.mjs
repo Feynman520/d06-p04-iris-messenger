@@ -9,6 +9,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { createHandler } from '../module/api.mjs';
+import { loadPanel } from '../module/panel.mjs';
 import { TEXT_MAX, FILE_MAX, RISKY_EXT } from '../module/messages.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -19,6 +20,7 @@ const arg = (name, fallback) => {
 };
 
 const STAGE = arg('stage', 'in');
+const MODE = arg('mode', 'dark') === 'light' ? 'light' : 'dark';   // --mode=light → 밝은 테마로 본다
 const PEER1 = '11111111-1111-4111-8111-111111111111';
 const PEER2 = '22222222-2222-4222-8222-222222222222';
 const T0 = Date.parse('2026-09-13T09:41:00.000Z');
@@ -123,9 +125,9 @@ class FakeApp {
       unread: this.#unread(),
       contacts: CONTACTS,
       notifyMuted: this.notifyMuted,
-      theme: { id: 'indigo', mode: 'dark' },
+      theme: { id: 'indigo', mode: MODE },
       lang: 'ko',
-      version: '0.1.0',
+      version: '0.2.0',
       limits: { textMax: TEXT_MAX, fileMax: FILE_MAX },
       riskyExt: RISKY_EXT.source,
     };
@@ -146,7 +148,7 @@ class FakeApp {
 }
 
 const token = crypto.randomBytes(8).toString('hex');
-const panelHtml = fs.readFileSync(path.join(ROOT, 'module', 'panel.html'), 'utf8');
+const panelHtml = loadPanel(path.join(ROOT, 'module'));
 const app = new FakeApp();
 const server = http.createServer(createHandler({ app, token, panelHtml, out: () => {} }));
 
