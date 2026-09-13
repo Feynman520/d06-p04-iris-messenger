@@ -73,10 +73,10 @@
     <p class="lead"><span id="code-email"></span> 으로 보냈습니다. 메일에 적힌 6자리 숫자를 넣어 주세요.</p>
     <input id="code-input" class="otp" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="6" placeholder="" autocomplete="one-time-code" spellcheck="false" aria-label="인증번호 6자리">
     <details class="more" id="code-more">
-      <summary>메일에 숫자가 없나요?</summary>
+      <summary>메일에 숫자가 없고 「Confirm email address」 같은 단추만 있나요?</summary>
       <div class="inner">
-        <p class="hint" style="margin:0 0 8px">링크만 있으면 <strong>링크를 누르지 말고</strong> 링크 주소를 복사해 아래에 붙여 넣으세요.</p>
-        <input id="code-link" type="text" placeholder="https://…" spellcheck="false" autocomplete="off" aria-label="링크 주소">
+        <p class="hint" style="margin:0 0 8px">그 단추(링크)를 <strong>누르지 말고</strong>, 단추 위에서 마우스 오른쪽 → <strong>링크 주소 복사</strong> → 아래 칸에 붙여 넣고 확인을 누르세요. 이 메신저가 대신 확인합니다.</p>
+        <input id="code-link" type="text" placeholder="…supabase.co/auth/v1/verify?token=…" spellcheck="false" autocomplete="off" aria-label="링크 주소">
       </div>
     </details>
     <button id="code-go" class="btn primary wide" type="button" style="margin-top:16px">확인</button>

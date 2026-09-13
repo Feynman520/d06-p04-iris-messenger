@@ -32,7 +32,11 @@ export class Supa {
       try { u = new URL(raw); } catch { throw new SupaError('bad code or link', { status: 400, code: 'bad_input' }); }
       const tokenHash = u.searchParams.get('token_hash') || u.searchParams.get('token');
       if (!tokenHash) throw new SupaError('bad code or link', { status: 400, code: 'bad_input' });
-      payload = { type: 'magiclink', token_hash: tokenHash };
+      // 링크의 종류를 그대로 넘긴다. 처음 가입하는 주소에는 Supabase 가 "Confirm your email"(type=signup) 링크를 보내는데,
+      // 이를 magiclink 로 확인하면 서버가 다른 토큰 칸을 보아 실패한다(2026-09-13 실측: 내장 메일러의 가입 확인 메일).
+      const LINK_TYPES = ['signup', 'magiclink', 'email', 'recovery', 'invite', 'email_change'];
+      const linkType = String(u.searchParams.get('type') || '').toLowerCase();
+      payload = { type: LINK_TYPES.includes(linkType) ? linkType : 'magiclink', token_hash: tokenHash };
     } else {
       payload = { type: 'email', email, token: raw };
     }

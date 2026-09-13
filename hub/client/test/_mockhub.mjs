@@ -41,7 +41,7 @@ export async function startMock() {
 
     if (method === 'POST' && path === '/auth/v1/verify') {
       calls.verify.push(body);
-      if (body?.type === 'magiclink') {
+      if (['magiclink', 'signup', 'email', 'recovery'].includes(body?.type) && body?.token_hash !== undefined) {
         if (body.token_hash === 'hash-ok') {
           return sendJson(res, 200, { access_token: 'at1', refresh_token: 'rt1', expires_in: 3600, user: { id: 'u1', email: body.email } });
         }

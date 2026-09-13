@@ -122,6 +122,21 @@ test('⑪ otpVerify pasted magic link (token= query) succeeds via type magiclink
   assert.equal('email' in mock.calls.verify.at(-1), false);
 });
 
+test('⑪-2 otpVerify pasted "Confirm your email" link (type=signup) keeps the link type; unknown type falls back to magiclink', async (t) => {
+  const mock = await startMock();
+  t.after(() => mock.close());
+  const supa = makeSupa(mock);
+  // 처음 가입하는 주소에는 Supabase 내장 메일러가 type=signup 링크를 보낸다(2026-09-13 실측) — magiclink 로 확인하면 서버가 다른 토큰 칸을 본다.
+  const s = await supa.otpVerify('a@b.com', 'https://x.supabase.co/auth/v1/verify?token=hash-ok&type=signup&redirect_to=x');
+  assert.equal(s.user.id, 'u1');
+  assert.equal(mock.calls.verify.at(-1).type, 'signup');
+  assert.equal(mock.calls.verify.at(-1).token_hash, 'hash-ok');
+  await supa.otpVerify('a@b.com', 'https://x.supabase.co/auth/v1/verify?token=hash-ok&type=weird');
+  assert.equal(mock.calls.verify.at(-1).type, 'magiclink');
+  await supa.otpVerify('a@b.com', 'https://x.supabase.co/auth/v1/verify?token=hash-ok');
+  assert.equal(mock.calls.verify.at(-1).type, 'magiclink');
+});
+
 test('⑫ otpVerify pasted link without token/token_hash → SupaError bad_input', async (t) => {
   const mock = await startMock();
   t.after(() => mock.close());

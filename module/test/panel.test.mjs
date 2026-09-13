@@ -116,7 +116,7 @@ test('⑦ 로그인 단계의 규정 문구와 14세 확인 칸이 그대로 있
   assert.ok(HTML.includes('id="out-agree"'), '체크 전에는 인증번호 받기를 막는 칸');
   assert.ok(HTML.includes('<button id="out-send" class="btn primary wide" type="button" disabled>'), '인증번호 받기는 처음에 잠겨 있다');
   assert.ok(HTML.includes('메일 주소를 적으면 인증번호 6자리를 보내 드립니다. 이 PC에서는 한 번만 하면 됩니다.'));
-  assert.ok(HTML.includes('링크만 있으면 <strong>링크를 누르지 말고</strong> 링크 주소를 복사해 아래에 붙여 넣으세요.'));
+  assert.ok(HTML.includes('그 단추(링크)를 <strong>누르지 말고</strong>'), '링크 붙여넣기 안내');
   assert.ok(/5번[^\n]*잠깁니다/.test(HTML), '5회 잠금 안내');
   // 인증번호 칸은 숫자 6자리만 받고, 다 차면 스스로 확인한다. 링크는 접힌 칸에 따로.
   assert.ok(HTML.includes('inputmode="numeric"') && HTML.includes('maxlength="6"'));
