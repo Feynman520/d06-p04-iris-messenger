@@ -1,7 +1,7 @@
 {
   "name": "messenger",
   "label": "메신저",
-  "icon": "💬",
+  "icon": "chat",
   "version": "0.1.0",
   "contract": 1,
   "grade": 0,
