@@ -127,7 +127,7 @@ class FakeApp {
       notifyMuted: this.notifyMuted,
       theme: { id: 'indigo', mode: MODE },
       lang: 'ko',
-      version: '0.2.0',
+      version: '0.2.1',
       limits: { textMax: TEXT_MAX, fileMax: FILE_MAX },
       riskyExt: RISKY_EXT.source,
     };

@@ -217,6 +217,9 @@ test('⑮ 브랜드는 Face 헤더와 같은 회전 육각 + IRIS 이고, 알림
   assert.ok(RAW_CSS.includes('@keyframes mk-spin'));
   assert.ok(RAW_CSS.includes('"Segoe Script"'), 'IRIS 글자체');
   assert.ok(count(HTML, '<span class="word">IRIS</span>') >= 5, '문 4장 + 본 화면');
+  // 테마 이름을 CSS 색으로 읽지 않는다('black' 테마 → 검정 강조색 사고, v0.2.0). Face 의 9개 테마가 전부 표에 있다.
+  assert.equal(JS.includes('CSS.supports'), false);
+  for (const id of ['indigo', 'black', 'graphite', 'forest', 'ember', 'violet', 'ivory', 'mist', 'paper']) assert.ok(new RegExp(`\\b${id}: \\{ accent: '#[0-9a-f]{6}', mode: '(dark|light)' \\}`).test(JS), `테마 ${id}`);
   assert.ok(JS.includes("$('set-mute').checked = !(S && S.notifyMuted);"));
   assert.ok(JS.includes('notifyMuted: !e.target.checked'));
 });

@@ -10,7 +10,19 @@
 var $ = function (id) { return document.getElementById(id); };
 var T = new URLSearchParams(location.search).get('t') || '';
 var STAGES = ['nohub', 'out', 'code', 'identity', 'in'];
-var ACCENTS = { indigo: '#6f7cff' };
+// Face 테마 이름 → 강조색·밝기(P02 app/registry.js THEMES 의 --iris 와 같은 값). 이름은 색 이름이 아니라 테마 이름이다 —
+// 'black' 같은 이름을 CSS 색으로 읽으면 강조색이 검정이 되어 마크·단추가 사라진다(v0.2.0 실측). 모르는 이름은 기본(indigo).
+var THEMES = {
+  indigo: { accent: '#8fa8ff', mode: 'dark' },
+  black: { accent: '#a3b1ff', mode: 'dark' },
+  graphite: { accent: '#9ecbff', mode: 'dark' },
+  forest: { accent: '#7fd8a8', mode: 'dark' },
+  ember: { accent: '#ffb27a', mode: 'dark' },
+  violet: { accent: '#c39bff', mode: 'dark' },
+  ivory: { accent: '#b0742e', mode: 'light' },
+  mist: { accent: '#3b74c9', mode: 'light' },
+  paper: { accent: '#3d5bd6', mode: 'light' }
+};
 var STATUS_LABEL = {
   pending_in: '받은 요청',
   pending_out: '상대 수락 대기',
@@ -162,13 +174,12 @@ function contactOf(id) {
 
 /* ── 테마 ──────────────────────────────────────────────────────── */
 function applyTheme(t) {
-  var mode = t && t.mode === 'light' ? 'light' : 'dark';
-  document.documentElement.setAttribute('data-mode', mode);
-  var color = null;
   var id = t && t.id ? String(t.id) : '';
-  if (ACCENTS[id]) color = ACCENTS[id];
-  else if (id && window.CSS && CSS.supports && CSS.supports('color', id)) color = id;
-  document.documentElement.style.setProperty('--accent', color || ACCENTS.indigo);
+  var known = THEMES[id] || THEMES.indigo;
+  // 밝기는 테마 이름이 정한다(밝은 테마 셋). Face 가 mode 를 따로 'light' 로 주면 그것도 받는다.
+  var mode = known.mode === 'light' || (t && t.mode === 'light') ? 'light' : 'dark';
+  document.documentElement.setAttribute('data-mode', mode);
+  document.documentElement.style.setProperty('--accent', known.accent);
 }
 
 /* ── 작은 메뉴 ─────────────────────────────────────────────────── */
