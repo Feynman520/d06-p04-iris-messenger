@@ -29,7 +29,7 @@ var STATUS_LABEL = {
   blocked_by_me: '내가 차단함',
   blocked_me: '상대가 차단함'
 };
-var RESET_WARN = "재설정하면 이 PC의 옛 편지는 다시 열 수 없고 연락처들에게 '열쇠 바뀜' 경고가 갑니다";
+var RESET_WARN = "재설정하면 이 PC의 옛 편지는 다시 열 수 없고 친구들에게 '열쇠 바뀜' 경고가 갑니다";
 var CONN_LABEL = { online: '연결됨', slow: '느림', offline: '끊김', stopped: '대기' };
 var GROUP_GAP = 5 * 60000;   // 같은 사람의 글이 5분 안에 이어지면 한 묶음으로 붙인다
 
@@ -40,9 +40,9 @@ var ERRORS = {
   locked: '5회 틀려 잠겼습니다. 인증번호를 다시 받으세요',
   'invalid or expired invite': '초대 코드가 틀렸거나 만료됐습니다',
   'too many attempts, wait a minute': '시도가 너무 많습니다. 1분 뒤 다시 하세요',
-  'fingerprint mismatch': '지문이 맞지 않습니다. 코드를 다시 확인하세요(서버가 열쇠를 바꿔치기했을 수 있습니다)',
+  'fingerprint mismatch': '고유번호가 맞지 않습니다. 코드를 다시 확인하세요(서버가 열쇠를 바꿔치기했을 수 있습니다)',
   blocked: '차단된 상대입니다',
-  mismatch: '12단어가 이 계정의 열쇠와 다릅니다',
+  mismatch: '복구 단어가 이 계정의 열쇠와 다릅니다',
   'display name required': '표시 이름을 넣으세요',
   'display name too long': '표시 이름이 너무 깁니다(40자까지)',
   'bad hub url or key': '서버 주소 또는 키가 올바르지 않습니다',
@@ -246,7 +246,7 @@ function render() {
     if (el) el.hidden = STAGES[i] !== stage;
   }
   // 열쇠가 어긋난 상태에서는 "시작(새 열쇠 만들기)"을 숨긴다 — 그 길도 이 PC의 옛 열쇠를 지우기 때문에,
-  // 물어보지 않고 누를 수 있는 단추로 두면 안 된다. 남는 길은 ① 12단어 복원 ② 확인을 거친 재설정뿐.
+  // 물어보지 않고 누를 수 있는 단추로 두면 안 된다. 남는 길은 ① 복구 단어 복원 ② 확인을 거친 재설정뿐.
   $('idn-mismatch').hidden = !S.keyMismatch;
   $('idn-normal').hidden = !!S.keyMismatch;
   $('idn-create').hidden = !!S.keyMismatch;
@@ -254,17 +254,15 @@ function render() {
   // 서버에만 프로필이 없는 경우: 이 PC의 열쇠를 그대로 올리는 길을 하나 더 보여 준다(열쇠는 그대로다).
   $('idn-missing').hidden = !S.profileMissing;
   $('idn-register').hidden = !S.profileMissing;
-  if (stage === 'out') say('out-hub', (S.hub && S.hub.url) || '아직 없음');
   if (stage === 'code') { say('code-email', S.email || '메일 주소'); if (!verifying) $('code-input').focus(); }
   if (stage !== 'in') return;
 
   say('me-name', S.displayName || '나');
-  say('me-fp', S.fingerprint ? '지문 ' + S.fingerprint : '');
   fillAvatar($('me-avatar'), S.displayName || '나', S.avatar);
   if (!$('settings-page').hidden) paintSettings();
   paintConn();
   paintHub();
-  // 서랍을 열면 곧바로 읽을 것이 보이도록 첫 수락된 연락처 하나만 열어 준다(처음 한 번).
+  // 서랍을 열면 곧바로 읽을 것이 보이도록 첫 수락된 친구 하나만 열어 준다(처음 한 번).
   if (!autoPicked && !peer) {
     var cs = S.contacts || [];
     for (var k = 0; k < cs.length; k += 1) {
@@ -299,7 +297,7 @@ function renderContacts() {
     return String(a.displayName || '').localeCompare(String(b.displayName || ''), 'ko');
   });
   if (!list.length) {
-    box.appendChild(h('li', { class: 'empty', text: '연락처가 없습니다. 오른쪽 위 +를 눌러 초대 코드를 만들어 상대에게 전하세요.' }));
+    box.appendChild(h('li', { class: 'empty', text: '아직 친구가 없습니다. 아래 「친구 추가」를 눌러 초대 코드를 만들어 상대에게 전하세요.' }));
     return;
   }
   var unread = (S.unread && S.unread.byPeer) || {};
@@ -308,7 +306,7 @@ function renderContacts() {
       h('span', { class: 'fp', text: c.fingerprint ? c.fingerprint.slice(0, 4) : '····' }),
       STATUS_LABEL[c.status] ? h('span', { class: 'tag' + (c.status === 'pending_in' ? ' warn' : ''), text: STATUS_LABEL[c.status] }) : null,
       c.keyChanged ? h('span', { class: 'tag bad', text: '⚠ 열쇠 바뀜' }) : null,
-      (!c.keyChanged && c.needsVerify) ? h('span', { class: 'tag warn', text: '지문 재확인 필요' }) : null
+      (!c.keyChanged && c.needsVerify) ? h('span', { class: 'tag warn', text: '고유번호 재확인 필요' }) : null
     );
     var btn = h('button', {
       class: 'contact', type: 'button', 'aria-current': peer === c.id ? 'true' : 'false',
@@ -329,26 +327,25 @@ function renderPeerbar() {
   if (old) old.remove();
   var c = peer ? contactOf(peer) : null;
   if (!c) {
-    bar.appendChild(h('div', { class: 'who' }, h('h2', { text: '대화' }),
-      h('p', { class: 'verify', text: '왼쪽 목록에서 상대를 고르면 기록이 열립니다.' })));
+    bar.appendChild(h('div', { class: 'who' }, h('h2', { text: '대화' })));   // 안내 문구 없음(v0.3.2)
     return;
   }
   var fp = c.fingerprint || '········';
   var who = h('div', { class: 'who' },
     avatarEl(c.displayName, c.avatar),
     h('h2', { text: c.displayName || '이름 모름' }),
-    h('span', { class: 'chip', title: '상대의 열쇠 지문' }, document.createTextNode(fp.slice(0, 4)), h('b', { text: fp.slice(4) })),
-    h('span', { class: 'verify', text: '상대와 직접 대조하세요. 이름은 흉내 낼 수 있지만 지문은 못 합니다.' })
+    h('span', { class: 'chip', title: '상대의 고유번호' }, document.createTextNode(fp.slice(0, 4)), h('b', { text: fp.slice(4) })),
+    h('span', { class: 'verify', text: '상대와 직접 대조하세요. 이름은 흉내 낼 수 있지만 고유번호는 못 합니다.' })
   );
   // 지금 상황에 맞는 안내는 머리 아래 얇은 줄로(항상 보이는 설명은 위 한 문장뿐).
   var notes = h('div', { class: 'notes', id: 'peer-notes' });
-  if (c.keyChanged) notes.appendChild(h('p', { class: 'bad', text: '상대의 열쇠가 바뀌었습니다. 새 지문을 상대에게 직접 확인한 뒤에만 받아들이세요.' }));
-  if (!c.keyChanged && c.needsVerify) notes.appendChild(h('p', { class: 'warn', text: '이 열쇠는 서버에서 받아 그대로 고정한 것입니다. 지문을 상대에게 직접 확인한 뒤 아래 단추를 누르세요.' }));
+  if (c.keyChanged) notes.appendChild(h('p', { class: 'bad', text: '상대의 열쇠가 바뀌었습니다. 새 고유번호를 상대에게 직접 확인한 뒤에만 받아들이세요.' }));
+  if (!c.keyChanged && c.needsVerify) notes.appendChild(h('p', { class: 'warn', text: '이 열쇠는 서버에서 받아 그대로 고정한 것입니다. 고유번호를 상대에게 직접 확인한 뒤 아래 단추를 누르세요.' }));
   if (c.status === 'pending_out') notes.appendChild(h('p', { text: '상대 수락 대기 중입니다.' }));
   if (c.status === 'blocked_me') notes.appendChild(h('p', { text: '상대가 나를 차단했습니다.' }));
   if (c.status === 'blocked_by_me') notes.appendChild(h('p', { text: '내가 차단한 상대입니다. 글이 오가지 않습니다.' }));
 
-  // 눌러야 할 것(수락·거절·새 지문 확인)은 단추로, 나머지(차단·풀기·삭제)는 … 메뉴로.
+  // 눌러야 할 것(수락·거절·새 고유번호 확인)은 단추로, 나머지(차단·풀기·삭제)는 … 메뉴로.
   var acts = h('div', { class: 'acts' });
   var btn = function (label, action, cls) {
     return h('button', { class: 'btn sm' + (cls ? ' ' + cls : ''), type: 'button', onclick: function () { contactAction(c.id, action, label); } }, label);
@@ -356,7 +353,7 @@ function renderPeerbar() {
   var item = function (label, action, ic, cls) {
     return h('button', { type: 'button', role: 'menuitem', class: cls || null, onclick: function () { closeMenus(); contactAction(c.id, action, label); } }, icon(ic), label);
   };
-  if (c.keyChanged || c.needsVerify) acts.appendChild(btn('새 지문 확인', 'trust-key', 'danger'));
+  if (c.keyChanged || c.needsVerify) acts.appendChild(btn('새 고유번호 확인', 'trust-key', 'danger'));
   if (c.status === 'pending_in') { acts.appendChild(btn('수락', 'accept', 'primary')); acts.appendChild(btn('거절', 'reject')); }
   var menu = h('div', { class: 'menu right', role: 'menu', hidden: true });
   if (c.status === 'accepted') { menu.appendChild(item('차단', 'block', 'block', 'danger')); menu.appendChild(item('삭제', 'remove', 'trash', 'danger')); }
@@ -375,10 +372,7 @@ function renderPeerbar() {
 function renderChat() {
   var box = $('chat');
   box.textContent = '';
-  if (!peer) {
-    box.appendChild(h('p', { class: 'blank', text: '왼쪽에서 대화할 사람을 고르세요.' }));
-    return;
-  }
+  if (!peer) return;   // 상대가 없으면 안내 없이 빈 화면(v0.3.2)
   if (!items.length) {
     box.appendChild(h('p', { class: 'blank', text: '아직 주고받은 글이 없습니다. 아래에 첫 글을 써 보세요.' }));
     return;
@@ -444,13 +438,13 @@ function fileCard(it, re) {
 function paintComposer() {
   var c = peer ? contactOf(peer) : null;
   var why = '';
-  if (!c) why = '왼쪽에서 대화할 사람을 고르세요.';
+  if (!c) why = '';   // 상대가 없으면 안내 없이 조용히 잠근다(v0.3.2)
   else if (c.status === 'pending_in') why = '먼저 이 요청을 수락하세요.';
   else if (c.status === 'pending_out') why = '상대가 수락해야 글을 보낼 수 있습니다.';
   else if (c.status === 'blocked_by_me') why = '차단을 풀어야 보낼 수 있습니다.';
   else if (c.status === 'blocked_me') why = '상대가 차단해 보낼 수 없습니다.';
   else if (S.hubMismatch) why = '서버와 판이 맞지 않아 지금은 보낼 수 없습니다.';
-  var ok = !why && !sending;
+  var ok = !!c && !why && !sending;
   $('msg').disabled = !ok;
   $('btn-send').disabled = !ok;
   $('btn-file').disabled = !ok;
@@ -585,12 +579,12 @@ async function getFile(id, btn) {
   renderChat();
 }
 
-/* ── 연락처 ────────────────────────────────────────────────────── */
+/* ── 친구목록 ────────────────────────────────────────────────────── */
 async function contactAction(id, action, label) {
   if (action === 'remove' || action === 'block' || action === 'reject' || action === 'trust-key') {
     var text = action === 'trust-key'
-      ? '상대의 새 지문을 받아들입니다. 상대에게 직접 물어 지문이 맞는지 먼저 확인했나요?'
-      : '이 연락처를 ' + label + '합니다. 되돌리려면 다시 초대 코드를 주고받아야 할 수 있습니다.';
+      ? '상대의 새 고유번호를 받아들입니다. 상대에게 직접 물어 고유번호가 맞는지 먼저 확인했나요?'
+      : '이 친구를 ' + label + '합니다. 되돌리려면 다시 초대 코드를 주고받아야 할 수 있습니다.';
     var yes = await ask(text, label);
     if (!yes) return;
   }
@@ -731,7 +725,7 @@ $('idn-restore').addEventListener('click', async function () {
   say('idn-err', '');
   if ($('idn-words-wrap').hidden) { showWordsArea(); return; }
   var words = $('idn-words').value.trim().split(/\s+/).filter(Boolean);
-  if (words.length !== 12) { say('idn-err', '12단어를 띄어쓰기로 구분해 적어 주세요(지금 ' + words.length + '개).'); return; }
+  if (words.length !== 12) { say('idn-err', '복구 단어 12개를 띄어쓰기로 구분해 적어 주세요(지금 ' + words.length + '개).'); return; }
   $('idn-restore').disabled = true;
   try {
     await api('/api/identity', { json: { displayName: $('idn-name').value.trim(), words: words } });
@@ -827,8 +821,6 @@ function paintSettings() {
 function openSettings() {
   say('set-err', '');
   paintSettings();
-  $('set-url').value = (S && S.hub && S.hub.url) || '';
-  $('set-key').value = '';
   $('settings-page').hidden = false;
   $('set-back').focus();
 }
@@ -906,24 +898,11 @@ $('set-rename').addEventListener('click', async function () {
   $('set-rename').disabled = false;
 });
 
-$('set-hub').addEventListener('click', async function () {
-  say('set-err', '');
-  var url = $('set-url').value.trim();
-  var key = $('set-key').value.trim();
-  // 둘은 짝이다 — key 칸이 비었으면 서버 주소를 아예 보내지 않는다(반쪽만 보내면 400이 난다).
-  if (!key) { say('set-err', '서버를 바꾸려면 anon key도 함께 넣으세요.'); return; }
-  var yes = await ask('서버 주소를 바꾸면 지금 계정에서 로그아웃됩니다. 계속할까요?', '저장하고 로그아웃');
-  if (!yes) return;
-  try {
-    await api('/api/settings', { json: { hubUrl: url, anonKey: key } });
-    closeSettings();
-    scheduleRefresh();
-  } catch (e) { say('set-err', human(e)); }
-});
+// 서버 주소 칸은 v0.3.2 에서 화면에서 뺐다(사용자 결정: 일반 사용자에게 보이지 않는다). 모듈 API /api/settings 는 그대로 있다.
 
 $('set-words').addEventListener('click', async function () {
   say('set-err', '');
-  var yes = await ask('백업 문구 12단어를 화면에 그대로 보여 줍니다. 옆에 다른 사람이나 화면 녹화가 없는지 먼저 확인하세요.', '보여 주기');
+  var yes = await ask('복구 단어 12개를 화면에 그대로 보여 줍니다. 옆에 다른 사람이나 화면 녹화가 없는지 먼저 확인하세요.', '보여 주기');
   if (!yes) return;
   try {
     var r = await api('/api/identity/words?confirm=1');

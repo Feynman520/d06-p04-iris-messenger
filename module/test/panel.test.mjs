@@ -90,13 +90,18 @@ test('⑤ 단계·본 화면의 필수 id가 모두 있다', () => {
     'btn-plus', 'menu-plus', 'btn-invite', 'btn-accept', 'btn-settings',
     'code-input', 'code-link', 'code-more', 'link-privacy',
     'me-avatar', 'set-avatar', 'set-avatar-img', 'set-avatar-ini', 'menu-avatar', 'set-avatar-pick', 'set-avatar-remove', 'avatar-input',
-    'set-url', 'set-key', 'set-hub', 'set-words', 'set-mute', 'set-logout', 'set-reset', 'set-delete', 'set-version',
+    'set-words', 'set-mute', 'set-logout', 'set-reset', 'set-delete', 'set-version',
   ];
   for (const id of ids) assert.ok(HTML.includes(`id="${id}"`), `id="${id}" 가 없다`);
   assert.equal(count(HTML, '<dialog id='), 4, '대화상자는 <dialog> 4개(설정은 한 장 화면)');
   assert.equal(HTML.includes('settings-dialog'), false, '설정 팝업은 더 이상 없다');
-  // 제목은 영어 IRIS Messenger — 문 화면 4장 + 본 화면 왼쪽 줄.
-  assert.equal(count(HTML, '<span class="word">IRIS</span><span class="sub">Messenger</span>'), 5);
+  // 제목은 영어 IRIS Messenger — 문 화면 4장. 본 화면 왼쪽 줄에는 두지 않는다(v0.3.2: Face 서랍 머리와 겹침).
+  assert.equal(count(HTML, '<span class="word">IRIS</span><span class="sub">Messenger</span>'), 4);
+  for (const id of ['set-url', 'set-key', 'set-hub', 'out-hub', 'me-fp']) assert.equal(HTML.includes(`id="${id}"`), false, `${id}: 서버 주소·내 고유번호는 화면에 없다(v0.3.2)`);
+  assert.ok(HTML.includes('친구목록') && HTML.includes('친구 추가') && !HTML.includes('연락처'), '연락처 → 친구목록');
+  assert.equal(HTML.includes('지문'), false, '지문 → 고유번호');
+  assert.equal(HTML.includes('백업 문구'), false, '백업 문구 → 복구 단어');
+  assert.equal(HTML.includes('왼쪽에서 대화할 사람을 고르세요'), false);
   assert.ok(HTML.includes('<title>IRIS Messenger</title>'));
 });
 
@@ -125,20 +130,20 @@ test('⑦ 로그인 단계의 규정 문구와 14세 확인 칸이 그대로 있
 });
 
 test('⑧ 신뢰·안전 문구가 빠지지 않았다', () => {
-  assert.ok(HTML.includes('상대와 직접 대조하세요. 이름은 흉내 낼 수 있지만 지문은 못 합니다.'));
-  assert.ok(HTML.includes('이 코드를 상대에게 직접(카톡·말) 전하세요. 뒤 4자는 내 열쇠 지문입니다.'));
-  assert.ok(HTML.includes('코드의 뒤 4자와 상대의 지문이 맞는지 확인합니다.'));
+  assert.ok(HTML.includes('상대와 직접 대조하세요. 이름은 흉내 낼 수 있지만 고유번호는 못 합니다.'));
+  assert.ok(HTML.includes('이 코드를 상대에게 직접(카톡·말) 전하세요. 뒤 4자는 내 고유번호의 일부입니다.'));
+  assert.ok(HTML.includes('코드의 뒤 4자와 상대의 고유번호가 맞는지 확인합니다.'));
   assert.ok(HTML.includes('이 PC의 열쇠가 계정의 열쇠와 다릅니다'));
-  assert.ok(HTML.includes('서버에 프로필이 없습니다. 이 PC의 열쇠를 등록하거나 12단어로 복원하세요'));
-  assert.ok(HTML.includes('이 열쇠는 서버에서 받아 그대로 고정한 것입니다. 지문을 상대에게 직접 확인한 뒤 아래 단추를 누르세요.'));
-  assert.ok(HTML.includes('지문 재확인 필요'), '아직 대조하지 않은 열쇠의 표식');
+  assert.ok(HTML.includes('서버에 프로필이 없습니다. 이 PC의 열쇠를 등록하거나 복구 단어로 복원하세요'));
+  assert.ok(HTML.includes('이 열쇠는 서버에서 받아 그대로 고정한 것입니다. 고유번호를 상대에게 직접 확인한 뒤 아래 단추를 누르세요.'));
+  assert.ok(HTML.includes('고유번호 재확인 필요'), '아직 대조하지 않은 열쇠의 표식');
   assert.ok(HTML.includes('다시 보내려면 파일을 다시 첨부해 보내세요'));
   // 상한 숫자는 박아 두지 않고 state().limits.fileMax 에서 만들어 쓴다.
   assert.ok(JS.includes("'파일이 너무 큽니다(' + Math.round(fileMax() / 1048576) + 'MB)'"));
   assert.equal(HTML.includes('파일이 너무 큽니다(10MB)'), false, '10MB를 글자로 박아 두지 않는다');
   assert.ok(HTML.includes('메시지·열쇠·로그인 정보가 이 PC와 서버에서 지워집니다'));
-  assert.ok(HTML.includes('저장하면 로그아웃됩니다'));
-  assert.ok(HTML.includes('적어 두었습니다'), '백업 문구 확인 칸');
+  assert.equal(HTML.includes('저장하면 로그아웃됩니다'), false, '서버 주소 칸은 화면에서 뺐다(v0.3.2)');
+  assert.ok(HTML.includes('적어 두었습니다'), '복구 단어 확인 칸');
   // 처리방침은 링크만 — 모듈이 같은 문지기로 내주는 /privacy 한 장을 새 창으로 연다(토큰은 시작 때 붙인다).
   assert.ok(HTML.includes('<a id="link-privacy" href="/privacy" target="_blank" rel="noopener">처리방침 읽기</a>'));
   assert.ok(JS.includes("$('link-privacy').href = '/privacy?t=' + encodeURIComponent(T);"));
@@ -146,7 +151,7 @@ test('⑧ 신뢰·안전 문구가 빠지지 않았다', () => {
   // 프로필 사진: PC 안에서 96×96 JPEG 로 줄여 보내고, 서버 상한(32KB)보다 작은 24KB 를 지킨다.
   assert.ok(JS.includes('var AVATAR_PX = 96;') && JS.includes('var AVATAR_BYTES = 24 * 1024;'));
   assert.ok(JS.includes("c.toDataURL('image/jpeg', q)"));
-  // 백업 문구에는 복사 단추를 두지 않는다(손으로 적게 한다).
+  // 복구 단어에는 복사 단추를 두지 않는다(손으로 적게 한다).
   assert.ok(HTML.includes('복사 단추는 일부러 두지 않았습니다'));
   assert.equal(HTML.includes('navigator.clipboard'), false);
   assert.equal(HTML.includes('execCommand'), false);
@@ -174,7 +179,7 @@ test('⑪ 열쇠가 어긋난 화면에는 물어보지 않는 열쇠 파괴 단
   assert.ok(JS.includes("$('idn-create').hidden = !!S.keyMismatch;"));
   assert.ok(JS.includes("if (S.keyMismatch) $('idn-words-wrap').hidden = false;"));
   // 재설정은 설정 쪽과 같은 확인 대화상자·같은 경고 문구를 쓴다(두 곳에서 ask(RESET_WARN…)).
-  assert.ok(HTML.includes("재설정하면 이 PC의 옛 편지는 다시 열 수 없고 연락처들에게 '열쇠 바뀜' 경고가 갑니다"));
+  assert.ok(HTML.includes("재설정하면 이 PC의 옛 편지는 다시 열 수 없고 친구들에게 '열쇠 바뀜' 경고가 갑니다"));
   assert.equal(count(JS, "ask(RESET_WARN, '열쇠 재설정')"), 2);
 });
 
@@ -185,9 +190,9 @@ test('⑫ 서버의 영어 오류를 사람 말로 바꾼다', () => {
     ['locked', '5회 틀려 잠겼습니다. 인증번호를 다시 받으세요'],
     ['invalid or expired invite', '초대 코드가 틀렸거나 만료됐습니다'],
     ['too many attempts, wait a minute', '시도가 너무 많습니다. 1분 뒤 다시 하세요'],
-    ['fingerprint mismatch', '지문이 맞지 않습니다. 코드를 다시 확인하세요(서버가 열쇠를 바꿔치기했을 수 있습니다)'],
+    ['fingerprint mismatch', '고유번호가 맞지 않습니다. 코드를 다시 확인하세요(서버가 열쇠를 바꿔치기했을 수 있습니다)'],
     ['blocked', '차단된 상대입니다'],
-    ['mismatch', '12단어가 이 계정의 열쇠와 다릅니다'],
+    ['mismatch', '복구 단어가 이 계정의 열쇠와 다릅니다'],
     ['display name required', '표시 이름을 넣으세요'],
     ['display name too long', '표시 이름이 너무 깁니다(40자까지)'],
     ['bad hub url or key', '서버 주소 또는 키가 올바르지 않습니다'],
@@ -210,10 +215,7 @@ test('⑬ 보내는 중에는 두 번 보내지지 않고, 끝나면 입력칸�
   assert.ok(JS.includes('function lockSend(on)'));
   assert.ok(JS.includes('if (sending) return;'), '보내는 중 Enter·재호출을 버린다');
   assert.ok(JS.includes("if (!$('msg').disabled) $('msg').focus();"), '끝나면 입력칸에 초점을 돌려준다');
-  assert.ok(JS.includes('var ok = !why && !sending;'));
-  // 서버 주소는 anon key와 짝으로만 보낸다.
-  assert.ok(JS.includes("if (!key) { say('set-err', '서버를 바꾸려면 anon key도 함께 넣으세요.'); return; }"));
-  assert.ok(HTML.includes('placeholder="서버를 바꿀 때만 채웁니다"'));
+  assert.ok(JS.includes('var ok = !!c && !why && !sending;'), '상대가 없으면 안내 없이 잠근다(v0.3.2)');
 });
 
 test('⑭ 모듈이 준 문자열은 HTML 에 넣지 않고 textContent 로만 그린다', () => {
@@ -228,7 +230,7 @@ test('⑮ 브랜드는 Face 헤더와 같은 회전 육각 + IRIS 이고, 알림
   assert.ok(HTML.includes('<symbol id="i-mark"'), '회전 육각 그림');
   assert.ok(RAW_CSS.includes('@keyframes mk-spin'));
   assert.ok(RAW_CSS.includes('"Segoe Script"'), 'IRIS 글자체');
-  assert.ok(count(HTML, '<span class="word">IRIS</span>') >= 5, '문 4장 + 본 화면');
+  assert.ok(count(HTML, '<span class="word">IRIS</span>') >= 4, '문 4장(본 화면 왼쪽 줄은 v0.3.2 부터 없음)');
   // 테마 이름을 CSS 색으로 읽지 않는다('black' 테마 → 검정 강조색 사고, v0.2.0). Face 의 9개 테마가 전부 표에 있다.
   assert.equal(JS.includes('CSS.supports'), false);
   for (const id of ['indigo', 'black', 'graphite', 'forest', 'ember', 'violet', 'ivory', 'mist', 'paper']) assert.ok(new RegExp(`\\b${id}: \\{ accent: '#[0-9a-f]{6}', mode: '(dark|light)' \\}`).test(JS), `테마 ${id}`);

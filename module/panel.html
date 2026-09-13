@@ -61,8 +61,7 @@
     <button id="out-send" class="btn primary wide" type="button" disabled>인증번호 받기</button>
     <p class="err" id="out-err" role="alert"></p>
   </div>
-  <p class="foot"><a id="link-privacy" href="/privacy" target="_blank" rel="noopener">처리방침 읽기</a>
-    <span aria-hidden="true"> · </span>서버 <span id="out-hub" class="fp"></span></p>
+  <p class="foot"><a id="link-privacy" href="/privacy" target="_blank" rel="noopener">처리방침 읽기</a></p>
 </main>
 
 <!-- ③ 인증번호 -->
@@ -94,29 +93,29 @@
   <p class="brand"><svg class="mark"><use href="#i-mark"/></svg><span class="word">IRIS</span><span class="sub">Messenger</span></p>
   <div class="card">
     <div id="idn-mismatch" class="notice bad" hidden>
-      <p><strong>이 PC의 열쇠가 계정의 열쇠와 다릅니다.</strong> 다른 PC에서 쓰던 계정이면 그때 적어 둔 12단어로 복원하세요. 12단어가 없으면 열쇠를 재설정할 수 있지만 예전에 받은 글은 다시 열 수 없고, 연락처마다 내 새 지문을 다시 확인해야 합니다.</p>
+      <p><strong>이 PC의 열쇠가 계정의 열쇠와 다릅니다.</strong> 다른 PC에서 쓰던 계정이면 그때 적어 둔 복구 단어 12개로 복원하세요. 복구 단어가 없으면 열쇠를 재설정할 수 있지만 예전에 받은 글은 다시 열 수 없고, 친구마다 내 새 고유번호를 다시 확인해야 합니다.</p>
       <div class="acts">
-        <button id="idn-mm-restore" class="btn sm" type="button">12단어로 복원</button>
+        <button id="idn-mm-restore" class="btn sm" type="button">복구 단어로 복원</button>
         <button id="idn-mm-reset" class="btn sm danger" type="button">열쇠 재설정</button>
       </div>
     </div>
     <div id="idn-missing" class="notice" hidden>
-      <p>서버에 프로필이 없습니다. 이 PC의 열쇠를 등록하거나 12단어로 복원하세요.</p>
+      <p>서버에 프로필이 없습니다. 이 PC의 열쇠를 등록하거나 복구 단어로 복원하세요.</p>
     </div>
     <div id="idn-normal">
       <h1>상대에게 보일 이름</h1>
-      <p class="lead">글은 이 PC의 열쇠로만 열립니다. 열쇠는 12단어로 백업합니다.</p>
+      <p class="lead">글은 이 PC의 열쇠로만 열립니다. 열쇠는 복구 단어 12개로 백업합니다.</p>
     </div>
     <label class="field" for="idn-name"><span>이름</span></label>
     <input id="idn-name" type="text" placeholder="홍길동" autocomplete="off" maxlength="40">
     <div id="idn-words-wrap" hidden style="margin-top:14px">
-      <label class="field" for="idn-words"><span>백업 문구 12단어(띄어쓰기로 구분)</span></label>
+      <label class="field" for="idn-words"><span>복구 단어 12개(띄어쓰기로 구분)</span></label>
       <textarea id="idn-words" rows="3" spellcheck="false" placeholder="able absent …"></textarea>
     </div>
     <div style="margin-top:18px;display:flex;flex-direction:column;gap:8px">
       <button id="idn-register" class="btn primary wide" type="button" hidden>이 PC의 열쇠로 등록</button>
       <button id="idn-create" class="btn primary wide" type="button">시작</button>
-      <button id="idn-restore" class="link" type="button" style="align-self:center">12단어로 복원</button>
+      <button id="idn-restore" class="link" type="button" style="align-self:center">복구 단어로 복원</button>
     </div>
     <p class="err" id="idn-err" role="alert"></p>
   </div>
@@ -125,23 +124,20 @@
 <!-- ⑤ 본 화면 -->
 <main id="stage-in" hidden>
   <aside class="rail">
-    <div class="rail-head">
-      <p class="brand" style="margin:0"><svg class="mark"><use href="#i-mark"/></svg><span class="word">IRIS</span><span class="sub">Messenger</span></p>
-      <div class="menu-wrap">
-        <button id="btn-plus" class="ic" type="button" title="초대" aria-haspopup="true" aria-expanded="false"><svg><use href="#i-plus"/></svg></button>
-        <div id="menu-plus" class="menu right" role="menu" hidden>
-          <button id="btn-invite" type="button" role="menuitem"><svg><use href="#i-ticket"/></svg>초대 코드 만들기</button>
-          <button id="btn-accept" type="button" role="menuitem"><svg><use href="#i-in"/></svg>초대 코드 입력</button>
-        </div>
+    <!-- 왼쪽 줄에 제목을 두지 않는다(v0.3.2): Face 서랍 머리가 이미 "IRIS Messenger"를 쓴다. -->
+    <div class="rail-title"><span>친구목록</span></div>
+    <ul id="contacts"></ul>
+    <div class="rail-add menu-wrap">
+      <button id="btn-plus" class="add" type="button" aria-haspopup="true" aria-expanded="false"><svg><use href="#i-plus"/></svg>친구 추가</button>
+      <div id="menu-plus" class="menu up" role="menu" hidden>
+        <button id="btn-invite" type="button" role="menuitem"><svg><use href="#i-ticket"/></svg>초대 코드 만들기</button>
+        <button id="btn-accept" type="button" role="menuitem"><svg><use href="#i-in"/></svg>초대 코드 입력</button>
       </div>
     </div>
-    <div class="rail-title"><span>연락처</span></div>
-    <ul id="contacts"></ul>
     <div class="me">
       <span id="me-avatar" class="avatar" aria-hidden="true">나</span>
       <div class="txt">
         <span class="name" id="me-name">나</span>
-        <span class="fp" id="me-fp"></span>
       </div>
       <span class="conn" title="서버 연결 상태"><span class="dot" id="conn-dot"></span><span id="conn-text">대기</span></span>
       <button id="btn-settings" class="ic" type="button" title="설정"><svg><use href="#i-gear"/></svg></button>
@@ -183,21 +179,13 @@
           <div class="ptxt">
             <div class="pname"><input id="set-name" type="text" placeholder="홍길동" autocomplete="off" maxlength="40" aria-label="상대에게 보일 이름"><button id="set-rename" class="ic accent" type="button" title="이름 저장" hidden><svg><use href="#i-check"/></svg></button></div>
             <div class="pmail" id="set-email">—</div>
-            <div class="pfp">지문 <span id="set-fp" class="fp">—</span></div>
+            <div class="pfp">고유번호 <span id="set-fp" class="fp">—</span></div>
           </div>
         </section>
         <section class="rows">
           <label class="row3"><span class="t">새 글 알림<small>끄면 Face 알림 없이 배지 숫자만 늘어납니다</small></span><input id="set-mute" class="sw" type="checkbox"></label>
-          <div class="row3"><span class="t">백업 문구<small>12단어. 보려면 확인을 거칩니다</small></span><button id="set-words" class="btn sm" type="button">다시 보기</button></div>
+          <div class="row3"><span class="t">복구 단어<small>12개. PC를 바꿀 때 열쇠를 되살립니다. 보려면 확인을 거칩니다</small></span><button id="set-words" class="btn sm" type="button">다시 보기</button></div>
         </section>
-        <details class="more adv">
-          <summary>고급 — 서버 주소</summary>
-          <div class="inner">
-            <label class="field"><span>서버 주소</span><input id="set-url" type="text" placeholder="https://xxxx.supabase.co" autocomplete="off"></label>
-            <label class="field"><span>anon key</span><input id="set-key" type="text" placeholder="서버를 바꿀 때만 채웁니다" autocomplete="off"></label>
-            <div class="acts"><button id="set-hub" class="btn sm" type="button">서버 주소 저장</button><span class="hint" style="margin:0;align-self:center">저장하면 로그아웃됩니다</span></div>
-          </div>
-        </details>
         <p class="err" id="set-err" role="alert"></p>
         <footer class="page-foot">
           <span class="ver">IRIS Messenger <span id="set-version">—</span></span>
@@ -214,9 +202,9 @@
 
 <!-- 대화상자 4 -->
 <dialog id="words-dialog" aria-labelledby="words-title">
-  <div class="head"><h2 id="words-title">백업 문구 12단어</h2><button class="x" type="button" data-close aria-label="close">✕</button></div>
+  <div class="head"><h2 id="words-title">복구 단어 12개</h2><button class="x" type="button" data-close aria-label="close">✕</button></div>
   <div class="body">
-    <p>이 12단어가 열쇠 그 자체입니다. 종이에 순서대로 적어 안전한 곳에 두세요. 복사 단추는 일부러 두지 않았습니다.</p>
+    <p>이 12개 단어가 열쇠 그 자체입니다. PC를 바꾸거나 포맷하면 이 단어들로만 되살릴 수 있습니다. 종이에 순서대로 적어 안전한 곳에 두세요. 복사 단추는 일부러 두지 않았습니다.</p>
     <ol id="words-grid"></ol>
     <label class="check"><input id="words-ok" type="checkbox"><span>적어 두었습니다</span></label>
   </div>
@@ -227,8 +215,8 @@
   <div class="head"><h2 id="invite-title">초대 코드</h2><button class="x" type="button" data-close aria-label="close">✕</button></div>
   <div class="body">
     <code id="invite-code"></code>
-    <p>이 코드를 상대에게 직접(카톡·말) 전하세요. 뒤 4자는 내 열쇠 지문입니다.</p>
-    <p class="hint" style="margin:0">7일 동안 한 번만 쓸 수 있습니다. 상대가 넣으면 내 연락처에 요청이 뜹니다.</p>
+    <p>이 코드를 상대에게 직접(카톡·말) 전하세요. 뒤 4자는 내 고유번호의 일부입니다.</p>
+    <p class="hint" style="margin:0">7일 동안 한 번만 쓸 수 있습니다. 상대가 넣으면 내 친구목록에 요청이 뜹니다.</p>
   </div>
 </dialog>
 
@@ -237,7 +225,7 @@
   <div class="body">
     <p>상대에게 받은 코드를 그대로 넣으세요.</p>
     <input id="accept-input" type="text" class="fp" placeholder="IRIS-XXXX-XXXX-XXXX" spellcheck="false" autocomplete="off">
-    <p class="hint">코드의 뒤 4자와 상대의 지문이 맞는지 확인합니다.</p>
+    <p class="hint">코드의 뒤 4자와 상대의 고유번호가 맞는지 확인합니다.</p>
     <p class="err" id="accept-err" role="alert"></p>
   </div>
   <div class="foot">

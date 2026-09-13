@@ -1,6 +1,6 @@
 /* IRIS Messenger · © 2026 Sejun Ham (함세준) · MIT · https://feynman520.github.io/card/#home */
 /* ── 낱말 ─────────────────────────────────────────────────────────────
-   주인공은 "지문" 8자와 초대 코드다. 사람이 눈으로 한 글자씩 맞춰 보는 값만
+   주인공은 "고유번호" 8자와 초대 코드다. 사람이 눈으로 한 글자씩 맞춰 보는 값만
    고정폭 글꼴 + 넓은 자간으로 도드라지게 하고, 나머지는 전부 조용하게 둔다.
    간격은 4의 배수, 모서리는 10/14/18, 움직임은 120ms 페이드 하나뿐이다.        */
 :root{
@@ -105,7 +105,7 @@ details.more summary::before{content:"";width:5px;height:5px;border-right:1.5px 
 details.more[open] summary::before{transform:rotate(45deg)}
 details.more .inner{margin-top:8px}
 
-/* 지문·초대 코드·백업 낱말 — 눈으로 대조하는 값만 이 글꼴을 쓴다 */
+/* 고유번호·초대 코드·복구 단어 — 눈으로 대조하는 값만 이 글꼴을 쓴다 */
 .fp{font-family:var(--mono);letter-spacing:.18em;font-variant-numeric:tabular-nums}
 .chip{
   display:inline-flex;align-items:center;font-family:var(--mono);font-size:13px;letter-spacing:.2em;
@@ -151,7 +151,11 @@ input[type=text].otp:focus{outline:2px solid var(--accent);outline-offset:3px;bo
   width:264px;flex:none;display:flex;flex-direction:column;min-height:0;
   background:var(--sur);border-right:1px solid var(--line);
 }
-.rail-head{display:flex;align-items:center;justify-content:space-between;padding:14px 12px 10px 16px}
+.rail-title{padding-top:12px}
+.rail-add{padding:6px 8px 4px;border-top:1px solid var(--line)}
+.rail-add .add{width:100%;display:flex;align-items:center;gap:8px;background:transparent;border:1px dashed var(--line);border-radius:10px;padding:8px 10px;color:var(--mut);font:inherit;font-size:13px;cursor:pointer;transition:background var(--t),color var(--t)}
+.rail-add .add:hover{background:var(--sur2);color:var(--fg)}
+.rail-add .add svg{width:16px;height:16px}
 .rail-title{display:flex;align-items:center;justify-content:space-between;padding:6px 10px 2px 16px;color:var(--dim);font-size:11.5px;letter-spacing:.08em;text-transform:uppercase}
 #contacts{list-style:none;margin:0;padding:4px 8px;overflow-y:auto;flex:1;min-height:0}
 #contacts .empty{color:var(--dim);padding:22px 10px;font-size:12.5px;line-height:1.6;text-align:center}
@@ -181,7 +185,6 @@ input[type=text].otp:focus{outline:2px solid var(--accent);outline-offset:3px;bo
 }
 .me .txt{flex:1;min-width:0}
 .me .name{display:block;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;line-height:1.3}
-.me .fp{display:block;color:var(--dim);font-size:11px;margin-top:1px}
 .conn{display:inline-flex;align-items:center;gap:5px;color:var(--dim);font-size:11.5px}
 .dot{width:7px;height:7px;border-radius:50%;background:var(--dim);flex:none}
 .dot.online{background:var(--ok)}
@@ -197,6 +200,7 @@ input[type=text].otp:focus{outline:2px solid var(--accent);outline-offset:3px;bo
 }
 .menu.left{left:0;top:calc(100% + 4px)}
 .menu.right{right:0;top:calc(100% + 4px)}
+.menu.up{left:8px;bottom:calc(100% + 2px)}
 .menu button{
   display:flex;align-items:center;gap:9px;width:100%;text-align:left;border:none;background:transparent;
   color:var(--fg);padding:8px 10px;border-radius:8px;cursor:pointer;font-size:13px;
