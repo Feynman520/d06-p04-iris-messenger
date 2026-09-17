@@ -196,8 +196,9 @@ export function createHandler({ app, token, panelHtml = '', privacyHtml = '', ou
       return sendJson(res, 200, r);
     }
     if (method === 'POST' && p === '/api/contacts/sync') {
-      const list = await need(app.contacts).sync();
-      app.emitState();
+      need(app.contacts);
+      // 화면이 부르는 맞추기는 최소 간격을 지킨다(서랍을 여닫을 때마다 서버를 두드리지 않게). 달라진 것이 있으면 state 사건이 따로 나간다.
+      const list = await app.refreshContacts();
       return sendJson(res, 200, { contacts: list });
     }
     if (method === 'POST' && seg[1] === 'contacts' && seg.length === 4) {
@@ -234,6 +235,8 @@ export function createHandler({ app, token, panelHtml = '', privacyHtml = '', ou
     const write = (type, data) => { try { res.write(`event: ${type}\ndata: ${JSON.stringify(data)}\n\n`); } catch { /* 이미 닫힌 화면 */ } };
     write('state', app.state());
     const off = app.on((ev) => write(ev.type, ev.type === 'state' ? app.state() : ev));
+    // 화면이 붙었다 = 사람이 보고 있다. 시작 뒤에 들어온 친구 요청을 이때 한 번 맞춘다(달라지면 state 사건으로 흘러간다).
+    Promise.resolve().then(() => app.refreshContacts?.()).catch((e) => log(`refreshContacts: ${e.message}`));
     const ping = setInterval(() => { try { res.write(': ping\n\n'); } catch { /* 닫힘 */ } }, 15000);
     ping.unref?.();
     let done = false;

@@ -10,19 +10,19 @@ import crypto from 'node:crypto';
 import { dpapiPlain } from '../../hub/client/dpapi.mjs';
 import { deriveKeyPair, mnemonicToEntropy, entropyToMnemonic, generateEntropy, b64 } from '../../hub/client/keys.mjs';
 import { FILE_MAX, TEXT_MAX } from '../messages.mjs';
-import { App } from '../app.mjs';
+import { App, CONTACTS_SYNC_MS, CONTACTS_SYNC_GAP_MS } from '../app.mjs';
 import { createHandler } from '../api.mjs';
-import { FakeSupa } from './_fakesupa.mjs';
+import { FakeSupa, fakeTimers } from './_fakesupa.mjs';
 
 const PRIVACY = '<!doctype html><meta charset="utf-8"><title>privacy</title><p>policy</p>';
 const PANEL = '<!doctype html><meta charset="utf-8"><title>IRIS Messenger</title><p>panel pending</p>';
 const TOKEN = 'deadbeefcafe0123';
 
 // App(가짜 허브·가짜 DPAPI) + createHandler를 실제 http 서버에 붙인 한 벌.
-async function world(t) {
+async function world(t, appOpts = {}) {
   const dir = fssync.mkdtempSync(path.join(os.tmpdir(), 'iris-api-'));
   const fake = new FakeSupa();
-  const app = new App({ makeSupa: () => fake, dpapi: dpapiPlain, log: () => {} });
+  const app = new App({ makeSupa: () => fake, dpapi: dpapiPlain, log: () => {}, ...appOpts });
   await app.init({ stateDir: dir });
   const sent = [];
   const logs = [];
@@ -482,4 +482,67 @@ test('⑯ 코드 결함(TypeError)은 속내를 감춘 500, 사용자에게 뜻�
   assert.equal(plain.status, 400);
   assert.equal(plain.body.error, 'bad email');
   assert.equal((await w.api('/api/state')).status, 200, '그 뒤로도 서버는 멀쩡하다');
+});
+
+// 0.3.3 결함 수정: 켜 둔 사이 상대가 내 초대 코드를 입력하면(서버에 pending 행, 요청한 쪽 = 상대) 시작 때 한 번만 맞추던
+// 친구목록에는 영영 뜨지 않았다. 이제 30초마다·화면이 붙을 때 맞추고, 새 "받은 요청"은 contacts 사건(배지·알림)으로 알린다.
+test('㉑ 켜 둔 사이 들어온 친구 요청은 주기 맞추기·화면 접속 때 "받은 요청"으로 올라오고 contacts 사건이 난다', async (t) => {
+  const timers = fakeTimers();
+  let clock = Date.now();
+  const w = await world(t, { timers, now: () => clock });
+  await signIn(w);
+  const me = (await w.state()).user.id;
+  assert.deepEqual((await w.state()).contacts, []);
+  const iv = timers.pending().filter((x) => x.kind === 'interval' && x.ms === CONTACTS_SYNC_MS);
+  assert.equal(iv.length, 1, '사용 가능 단계가 되면 친구목록 시계가 하나 걸린다');
+
+  // 상대가 내 초대 코드를 입력했다 → 서버에 pending 행(요청한 쪽 = 상대). 내 모듈은 아직 모른다.
+  const other = crypto.randomUUID();
+  const otherPublic = deriveKeyPair(generateEntropy()).publicRaw;
+  w.fake.profiles.push({ id: other, display_name: '똥개', public_key: b64.enc(otherPublic), key_version: 1, avatar: null });
+  const [a, b] = me < other ? [me, other] : [other, me];
+  w.fake.contactRows.push({ user_a: a, user_b: b, status: 'pending', requested_by: other, blocked_by: null });
+  const events = [];
+  w.app.on((ev) => events.push(ev));
+
+  // 최소 간격 안의 요청은 서버를 두드리지 않는다(화면이 여닫힐 때마다 부르는 경로).
+  const selects = w.fake.calls.select;
+  assert.deepEqual((await w.json('/api/contacts/sync', { method: 'POST' })).body.contacts, []);
+  assert.equal(w.fake.calls.select, selects, '간격 안이면 서버 호출 없음');
+
+  // 30초 뒤 시계가 울리면 서버와 맞춰 "받은 요청"이 올라온다.
+  clock += CONTACTS_SYNC_MS;
+  await timers.fire(iv[0].id);
+  const s = await w.state();
+  assert.equal(s.contacts.length, 1);
+  assert.equal(s.contacts[0].id, other);
+  assert.equal(s.contacts[0].status, 'pending_in');
+  assert.equal(s.contacts[0].displayName, '똥개');
+  assert.equal(w.app.pendingRequests(), 1, '배지에 더할 받은 요청 수');
+  const ev = events.find((e) => e.type === 'contacts');
+  assert.deepEqual(ev?.requests, [{ id: other, displayName: '똥개' }], '새 요청만 알림 대상으로 담는다');
+  assert.equal(events.some((e) => e.type === 'state'), true, '화면을 다시 그리게 한다');
+
+  // 달라진 것이 없으면 사건도 없다(같은 목록으로 화면을 흔들지 않는다).
+  events.length = 0;
+  clock += CONTACTS_SYNC_MS;
+  await timers.fire(iv[0].id);
+  assert.deepEqual(events, []);
+
+  // 화면이 붙으면(SSE) 한 번 더 맞춘다 — 그 사이 상대 쪽 사정으로 요청이 사라졌다면 목록에서도 빠진다.
+  w.fake.contactRows.length = 0;
+  clock += CONTACTS_SYNC_GAP_MS;
+  const ctrl = new AbortController();
+  const res = await fetch(`${w.base}/api/events?t=${TOKEN}`, { signal: ctrl.signal });
+  const reader = res.body.getReader();
+  await reader.read(); // 첫 청크 = 붙기 전 상태
+  for (let i = 0; i < 50 && w.app.pendingRequests() !== 0; i += 1) await new Promise((r) => setTimeout(r, 20));
+  assert.equal(w.app.pendingRequests(), 0, '화면 접속이 맞추기를 한 번 더 부른다');
+  assert.deepEqual((await w.state()).contacts, []);
+  ctrl.abort();
+  await reader.cancel().catch(() => {});
+
+  // 로그아웃하면 시계를 거둔다.
+  await w.json('/api/logout', { method: 'POST' });
+  assert.equal(timers.pending().filter((x) => x.kind === 'interval' && x.ms === CONTACTS_SYNC_MS).length, 0);
 });

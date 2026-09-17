@@ -799,7 +799,12 @@ $('msg').addEventListener('keydown', function (e) {
   sendText();
 });
 
-document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'visible') readOpen(); });
+document.addEventListener('visibilitychange', function () {
+  if (document.visibilityState !== 'visible') return;
+  readOpen();
+  // 서랍을 다시 열었을 때 그 사이 들어온 친구 요청을 맞춘다(모듈이 최소 간격을 지키므로 여닫기마다 서버를 두드리진 않는다).
+  if (S && S.stage === 'in') api('/api/contacts/sync', { method: 'POST' }).catch(function () { /* 다음 주기에 다시 */ });
+});
 
 /* ── 설정 ──────────────────────────────────────────────────────── */
 // 설정은 대화 영역을 덮는 한 장. 값은 state 에서 채우고, 열려 있는 동안 state 가 바뀌면 다시 채운다(이름 칸은 편집 중이면 건드리지 않는다).

@@ -2,7 +2,7 @@
   "name": "messenger",
   "label": "IRIS Messenger",
   "icon": "chat",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "contract": 1,
   "grade": 0,
   "minFace": "2.47.0",

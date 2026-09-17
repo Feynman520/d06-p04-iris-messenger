@@ -21,6 +21,11 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 export const NAME_MAX = 40; // 표시 이름 글자 수 상한(화면·API가 같은 값을 쓴다)
 export const AVATAR_MAX = 32 * 1024; // 프로필 사진 data URL 상한(서버 제약 0004 와 같은 값)
 const AVATAR_RE = /^data:image\/jpeg;base64,[A-Za-z0-9+/]+=*$/;
+// 친구목록은 편지와 달리 도어벨(실시간 구독)이 없다 — 살아 있는 동안 주기적으로 서버와 맞추고,
+// 화면이 열릴 때도 한 번 맞춘다(너무 잦은 요청은 최소 간격으로 거른다). 0.3.3: 받은 요청이
+// 화면에 뜨지 않던 결함(시작 때 한 번만 맞추던 것) 수정.
+export const CONTACTS_SYNC_MS = 30 * 1000;
+export const CONTACTS_SYNC_GAP_MS = 3 * 1000;
 // 계정 폴더가 생기기 전(0.1.0)의 자리 — 첫 로그인 때 통째로 계정 폴더로 옮긴다.
 const LEGACY_NAMES = ['keys.bin', 'contacts.json', 'messages', 'files', 'outbox.json'];
 
@@ -28,9 +33,14 @@ const LEGACY_NAMES = ['keys.bin', 'contacts.json', 'messages', 'files', 'outbox.
 export class App {
   #listeners = [];
   #pendingEmail = null;
+  #contactsTimer = null;   // 살아 있는 동안 친구목록을 주기적으로 맞추는 시계
+  #contactsSyncAt = 0;     // 마지막으로 맞춘 시각(최소 간격 판정)
+  #contactsSyncing = null; // 진행 중인 맞추기(겹쳐 부르면 같은 약속을 돌려준다)
 
-  constructor({ makeSupa, dpapi, log = () => {} } = {}) {
+  constructor({ makeSupa, dpapi, log = () => {}, timers, now } = {}) {
     this.log = log;
+    this.timers = timers || { setTimeout, clearTimeout, setInterval, clearInterval };
+    this.now = now || (() => Date.now());
     this.dpapi = dpapi; // undefined면 Session·Identity가 실제 DPAPI를 쓴다
     this.makeSupa = makeSupa || ((conf) => new Supa({ ...conf, log }));
     this.stateDir = null;
@@ -65,6 +75,7 @@ export class App {
 
   async init({ stateDir }) {
     this.messages?.stop();
+    this.#stopContactsSync();
     this.stateDir = stateDir;
     this.hubMismatch = null;
     this.keyMismatch = false;
@@ -129,6 +140,7 @@ export class App {
   async #useAccount(uid) {
     if (this.accountId === uid && this.identity) return;
     this.messages?.stop();
+    this.#stopContactsSync();
     this.accountId = uid ?? null;
     this.accountDir = null;
     this.identity = this.contacts = this.messages = null;
@@ -207,6 +219,61 @@ export class App {
     }
     if (this.hubMismatch || this.keyMismatch || this.profileMissing) return; // 맞지 않는 허브·열쇠에는 연결하지 않는다
     this.messages.start();
+    this.#startContactsSync();
+  }
+
+  // ---- 친구목록 주기 맞추기 ----
+
+  #startContactsSync() {
+    this.#stopContactsSync();
+    this.#contactsSyncAt = this.now();
+    // 약속을 돌려준다 — 실제 setInterval은 무시하지만 시험의 가짜 시계는 이를 기다릴 수 있다.
+    this.#contactsTimer = this.timers.setInterval(() => this.refreshContacts().catch(() => {}), CONTACTS_SYNC_MS);
+    this.#contactsTimer?.unref?.();
+  }
+
+  #stopContactsSync() {
+    if (this.#contactsTimer) this.timers.clearInterval(this.#contactsTimer);
+    this.#contactsTimer = null;
+  }
+
+  // 한 연락처의 "화면에 보이는 모양"을 한 줄로 — 이 줄이 달라졌을 때만 화면을 다시 그리게 한다.
+  static #contactSig(c) { return `${c.id}:${c.status}:${c.keyVersion}:${c.keyChanged ? 1 : 0}:${c.needsVerify ? 1 : 0}:${c.displayName}:${c.avatar ? 1 : 0}`; }
+
+  // 친구목록을 서버와 맞춘다. 사용 가능 단계('in')에서만 돌고, 최소 간격 안의 재요청은 건너뛴다(force 면 즉시).
+  // 새로 생긴 "받은 요청"은 { type:'contacts', requests:[{id,displayName}] } 사건으로 알린다(배지·알림용).
+  async refreshContacts({ force = false } = {}) {
+    if (this.stage() !== 'in' || !this.contacts) return this.contacts?.list() ?? [];
+    if (this.#contactsSyncing) return this.#contactsSyncing;
+    if (!force && this.now() - this.#contactsSyncAt < CONTACTS_SYNC_GAP_MS) return this.contacts.list();
+    this.#contactsSyncing = (async () => {
+      const before = this.contacts.list();
+      const beforeSig = before.map((c) => App.#contactSig(c)).sort().join('|');
+      const wasPendingIn = new Set(before.filter((c) => c.status === 'pending_in').map((c) => c.id));
+      let after;
+      try {
+        after = await this.contacts.sync();
+      } catch (e) {
+        this.log(`contacts.sync: ${e.message}`); // 오프라인이면 마지막으로 알던 목록을 그대로 둔다
+        return before;
+      } finally {
+        this.#contactsSyncAt = this.now();
+      }
+      const afterSig = after.map((c) => App.#contactSig(c)).sort().join('|');
+      if (afterSig === beforeSig) return after;
+      const requests = after
+        .filter((c) => c.status === 'pending_in' && !wasPendingIn.has(c.id))
+        .map((c) => ({ id: c.id, displayName: c.displayName ?? null }));
+      this.#emit({ type: 'contacts', requests });
+      this.#emitState();
+      return after;
+    })().finally(() => { this.#contactsSyncing = null; });
+    return this.#contactsSyncing;
+  }
+
+  // 받은 친구 요청 수 — 배지가 읽지 않은 편지 수에 더해 보여 준다.
+  pendingRequests() {
+    return (this.contacts?.list() ?? []).filter((c) => c.status === 'pending_in').length;
   }
 
   // meta.schema_version 이 module.json 의 hub.min~max 밖이면 어느 쪽이 낡았는지 알린다.
@@ -328,6 +395,7 @@ export class App {
   async logout() {
     this.#needHub();
     this.messages?.stop();
+    this.#stopContactsSync();
     await this.session.logout();
     this.#pendingEmail = null;
     this.hubMismatch = null;
@@ -340,6 +408,7 @@ export class App {
   async deleteAccount() {
     this.#needSession();
     this.messages?.stop();
+    this.#stopContactsSync();
     await this.session.deleteAccount(); // 서버 rpc + 로그인 정보 + 이 계정 폴더만
     try { await this.session.logout(); } catch (e) { this.log(`logout after delete: ${e.message}`); }
     // settings.json 은 계정이 아니라 이 PC의 것이다(허브 주소·알림 설정) — 지우지 않고
@@ -475,6 +544,7 @@ export class App {
     const key = String(anonKey || '').trim();
     if (!/^https?:\/\/[^\s]+$/.test(u) || !key) throw new Error('bad hub url or key');
     this.messages?.stop();
+    this.#stopContactsSync();
     try { if (this.session?.user) await this.session.logout(); } catch (e) { this.log(`logout: ${e.message}`); }
     await this.#saveSettings({ hub: { url: u, anonKey: key } });
     await this.init({ stateDir: this.stateDir });
@@ -491,6 +561,7 @@ export class App {
 
   async shutdown() {
     this.messages?.stop();
+    this.#stopContactsSync();
     this.#listeners = [];
   }
 }

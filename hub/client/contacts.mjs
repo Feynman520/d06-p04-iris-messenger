@@ -180,6 +180,10 @@ export class Contacts {
       }
       this.#state.set(other, { status, requestedByMe, keyChanged, live });
     }
+    // 서버에서 사라진 관계(상대가 요청을 거절했거나 나를 지운 경우)는 상태에서도 내린다 — 주기 맞추기(0.3.3)가
+    // 같은 목록을 계속 보여 주지 않게. 고정된 열쇠(pin)는 건드리지 않는다(오프라인 표시·편지 열기의 근거).
+    const seen = new Set(otherIds);
+    for (const id of [...this.#state.keys()]) if (!seen.has(id)) this.#state.delete(id);
     if (dirty) await this.#persist();
     return this.list();
   }

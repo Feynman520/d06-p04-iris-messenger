@@ -32,15 +32,23 @@ let helloSeen = false;
 let closing = false;
 const lastNotify = new Map();
 
+// 배지 = 읽지 않은 편지 수 + 받은 친구 요청 수(둘 다 "내가 눌러야 할 것").
 const badgeCount = () => {
-  try { return Math.max(0, Math.min(999, app.messages?.unread().total ?? 0)); } catch { return 0; }
+  try { return Math.max(0, Math.min(999, (app.messages?.unread().total ?? 0) + app.pendingRequests())); } catch { return 0; }
 };
 
-// 편지 사건 → 배지·알림. 알림에는 보낸 이 이름만 담고 본문은 절대 담지 않는다.
+// 편지·친구목록 사건 → 배지·알림. 알림에는 보낸 이 이름만 담고 본문은 절대 담지 않는다.
 app.on((ev) => {
   if (!panelSent) return; // panel보다 먼저 말하지 않는다(첫 줄은 언제나 panel)
   try {
-    if (ev.type === 'message' || ev.type === 'badge') out({ t: 'badge', count: badgeCount() });
+    if (ev.type === 'message' || ev.type === 'badge' || ev.type === 'contacts') out({ t: 'badge', count: badgeCount() });
+    if (ev.type === 'contacts') {
+      if (app.notifyMuted) return;
+      for (const r of ev.requests || []) {
+        out({ t: 'notify', title: String(r.displayName || '연락처').slice(0, 80), sub: '친구 요청', target: String(r.id ?? '').slice(0, 120) });
+      }
+      return;
+    }
     if (ev.type !== 'message') return;
     const item = ev.item;
     if (!item || item.dir !== 'in' || item.status === 'failed') return;
