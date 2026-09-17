@@ -228,8 +228,8 @@ input[type=text].otp:focus{outline:2px solid var(--accent);outline-offset:3px;bo
   margin:0;padding:8px 20px;background:color-mix(in srgb,var(--warn) 9%,var(--sur));border-bottom:1px solid var(--line);
   color:var(--warn);font-size:12.5px;
 }
-/* 대화 열은 600px 안에 모은다(v0.4.0): 서랍이 넓어도 내 말·상대 말이 멀리 떨어지지 않게. 좁은 화면에서는 max()가 20px로 돌아간다. */
-#chat{flex:1;overflow-y:auto;min-height:0;padding:16px max(20px,calc((100% - 600px) / 2)) 12px;display:flex;flex-direction:column;gap:2px}
+/* 대화 열은 720px 안에 모은다(v0.4.0 600 → v0.4.2 720, 사용자 조정): 서랍이 넓어도 내 말·상대 말이 멀리 떨어지지 않게. 좁은 화면에서는 max()가 20px로 돌아간다. */
+#chat{flex:1;overflow-y:auto;min-height:0;padding:16px max(20px,calc((100% - 720px) / 2)) 12px;display:flex;flex-direction:column;gap:2px}
 #chat .blank{margin:auto;color:var(--dim);text-align:center;max-width:34ch;line-height:1.7}
 .day{align-self:center;color:var(--dim);font-size:11.5px;margin:14px 0 8px;padding:2px 10px;border-radius:20px;background:var(--sur2)}
 .line{display:flex;flex-direction:column;gap:2px;max-width:min(60ch,78%);margin-top:2px}
