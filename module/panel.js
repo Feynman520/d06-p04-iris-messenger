@@ -66,6 +66,7 @@ var items = [];        // 열린 대화의 편지들
 var es = null;
 var refreshTimer = null;
 var autoPicked = false;
+var pendingFile = null;   // 고른 뒤 아직 보내지 않은 파일(v0.4.0: 파일은 보내기를 눌러야 나간다)
 var backToEmail = false;
 var sending = false;    // 보내는 중이면 입력칸·단추를 잠근다
 var verifying = false;  // 인증번호 확인 중(6자리가 차면 자동으로 한 번만)
@@ -464,6 +465,7 @@ function countText() {
 
 /* ── 대화 열기·읽음 ────────────────────────────────────────────── */
 async function openPeer(id) {
+  if (peer !== id) clearAttach();   // 첨부는 고른 상대에게만 — 상대를 바꾸면 푼다
   peer = id;
   items = [];
   say('sendmsg', '');
@@ -527,36 +529,61 @@ function lockSend(on) {
   if (!$('msg').disabled) $('msg').focus();
 }
 
+// 첨부 띠: 고른 파일이 있으면 입력칸 위에 보이고, 없으면 숨긴다.
+function renderAttach() {
+  var f = pendingFile;
+  $('attach').hidden = !f;
+  $('attach-name').textContent = f ? f.name : '';
+  $('attach-name').title = f ? f.name : '';
+  $('attach-size').textContent = f ? fmtSize(f.size) : '';
+  $('msg').placeholder = f ? '파일과 함께 보낼 글(비워도 됩니다)' : '글을 쓰고 Enter로 보냅니다';
+}
+
+function attachFile(file) {
+  if (!file) return;
+  if (file.size > fileMax()) { say('sendmsg', tooBigText()); return; }
+  say('sendmsg', '');
+  pendingFile = file;
+  renderAttach();
+  if (!$('msg').disabled) $('msg').focus();
+}
+
+function clearAttach() {
+  pendingFile = null;
+  renderAttach();
+}
+
+// 파일 한 통을 올린다 — 잠금(lockSend)은 부르는 쪽이 건다.
+async function postFile(file) {
+  var q = '/api/send-file?peer=' + encodeURIComponent(peer) + '&name=' + encodeURIComponent(file.name);
+  var r = await api(q, { raw: file });
+  if (r.item) { upsert(r.item); renderChat(); }
+}
+
+// 보내기(Enter·단추): 첨부가 있으면 파일 먼저, 글이 있으면 그다음 — 두 통으로 나간다.
 async function sendText() {
   if (sending) return;
   var text = $('msg').value;
-  if (!peer || !text.trim()) return;
+  var file = pendingFile;
+  if (!peer || (!text.trim() && !file)) return;
   var max = (S.limits && S.limits.textMax) || 4000;
-  if (Array.from(text).length > max) { say('sendmsg', '글이 너무 깁니다(' + max + '자)'); return; }
+  if (text.trim() && Array.from(text).length > max) { say('sendmsg', '글이 너무 깁니다(' + max + '자)'); return; }
   say('sendmsg', '');
   lockSend(true);
   try {
-    var r = await api('/api/send', { json: { peer: peer, text: text } });
-    $('msg').value = '';
-    $('msg').style.height = 'auto';
-    countText();
-    if (r.item) { upsert(r.item); renderChat(); }
-  } catch (e) {
-    say('sendmsg', human(e));
-  }
-  lockSend(false);
-}
-
-async function sendFile(file) {
-  if (sending || !peer || !file) return;
-  if (file.size > fileMax()) { say('sendmsg', tooBigText()); return; }
-  say('sendmsg', '보내는 중: ' + file.name);
-  lockSend(true);
-  try {
-    var q = '/api/send-file?peer=' + encodeURIComponent(peer) + '&name=' + encodeURIComponent(file.name);
-    var r = await api(q, { raw: file });
-    say('sendmsg', '');
-    if (r.item) { upsert(r.item); renderChat(); }
+    if (file) {
+      say('sendmsg', '보내는 중: ' + file.name);
+      await postFile(file);
+      clearAttach();
+      say('sendmsg', '');
+    }
+    if (text.trim()) {
+      var r = await api('/api/send', { json: { peer: peer, text: text } });
+      $('msg').value = '';
+      $('msg').style.height = 'auto';
+      countText();
+      if (r.item) { upsert(r.item); renderChat(); }
+    }
   } catch (e) {
     say('sendmsg', e.status === 413 ? tooBigText() : human(e));
   }
@@ -781,8 +808,9 @@ $('btn-file').addEventListener('click', function () { $('file-input').click(); }
 $('file-input').addEventListener('change', function (e) {
   var f = e.target.files && e.target.files[0];
   e.target.value = '';
-  if (f) sendFile(f);
+  if (f) attachFile(f);   // 바로 보내지 않는다 — 띠에 붙이고 보내기를 기다린다(v0.4.0)
 });
+$('attach-x').addEventListener('click', function () { clearAttach(); if (!$('msg').disabled) $('msg').focus(); });
 
 $('composer').addEventListener('submit', function (e) { e.preventDefault(); sendText(); });
 $('msg').addEventListener('input', function () {

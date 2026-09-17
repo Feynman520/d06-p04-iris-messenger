@@ -8,7 +8,7 @@ import os from 'node:os';
 import crypto from 'node:crypto';
 import { generateEntropy, deriveKeyPair } from '../../hub/client/keys.mjs';
 import { seal } from '../../hub/client/crypto.mjs';
-import { Messages, TEXT_MAX, FILE_MAX, RISKY_EXT } from '../messages.mjs';
+import { Messages, TEXT_MAX, FILE_MAX, RISKY_EXT, SAVE_DIR_NAME, findIrisRoot, folderName } from '../messages.mjs';
 import { FakeSupa, fakeTimers } from './_fakesupa.mjs';
 
 function party() {
@@ -601,4 +601,44 @@ test('⑳ 파일 주소의 uuid는 정규형만 받는다(대문자·자리수 �
   assert.equal(items.length, bad.length);
   for (const it of items) assert.equal(it.error, 'bad file path');
   assert.equal(fake.calls.download, 0);
+});
+
+// 0.4.0: 받은 파일은 IRIS 루트 밑 _messenger\<상대 이름>\ 에 원래 이름으로. 루트는 Face와 같은 규칙(_agent 표지)으로 찾는다.
+test('㉒ 받은 파일 자리: IRIS 루트를 찾으면 _messenger\\<상대 이름>\\원래이름, 겹치면 (2), 이름의 금지 글자는 _', async (t) => {
+  const { fake, a, b, tempDir, make } = world(t);
+  const root = tempDir('root');
+  fssync.mkdirSync(path.join(root, '_agent'));                           // IRIS 루트 표지
+  const stateB = path.join(root, 'R07', 'P02', 'modules', 'messenger', 'state', 'accounts', b.id);
+  fssync.mkdirSync(stateB, { recursive: true });
+  assert.equal(findIrisRoot(stateB, {}), root, '상태 폴더에서 위로 올라가 _agent 가 있는 폴더');
+  assert.equal(findIrisRoot(tempDir('lonely'), {}), null, '표지가 없으면 null(상태 폴더에 저장)');
+  assert.equal(findIrisRoot(stateB, { IRIS_ROOT: root }), root, '환경변수가 먼저');
+  assert.equal(folderName(' a/b:c*d?e"f<g>h|i. '), 'a_b_c_d_e_f_g_h_i');
+  assert.equal(folderName(''), '이름 모름');
+
+  const A = await make(a, b, tempDir('a'));
+  const contacts = { publicKeyOf: () => a.publicRaw, list: () => [{ id: a.id }], get: () => ({ id: a.id, displayName: '똥/개' }) };
+  const B = await make(b, a, stateB, { contacts });
+  assert.equal(B.saveRoot, root);
+
+  const data = Buffer.from('첫 번째', 'utf8');
+  await A.sendFile(b.id, { name: 'a.txt', data });
+  await A.sendFile(b.id, { name: 'a.txt', data: Buffer.from('두 번째', 'utf8') });
+  await B.gapFill();
+  const [first, second] = B.history(a.id);
+  const p1 = await B.fetchFile(first.id);
+  const p2 = await B.fetchFile(second.id);
+  assert.equal(p1, path.join(root, SAVE_DIR_NAME, '똥_개', 'a.txt'));
+  assert.equal(p2, path.join(root, SAVE_DIR_NAME, '똥_개', 'a (2).txt'));
+  assert.equal(fssync.readFileSync(p1, 'utf8'), '첫 번째');
+  assert.equal(fssync.readFileSync(p2, 'utf8'), '두 번째');
+  assert.equal(fssync.existsSync(path.join(stateB, 'files')), false, '루트를 찾았으면 상태 폴더에는 쓰지 않는다');
+
+  // 루트를 못 찾는 설치(saveRoot null)는 예전처럼 상태 폴더 files\ 에.
+  const C = await make(b, a, tempDir('c'), { contacts, saveRoot: null });
+  await A.sendFile(b.id, { name: 'a.txt', data });   // B 가 이미 받아 간 줄은 다시 오지 않으므로 새로 한 통
+  await C.gapFill();
+  const p3 = await C.fetchFile(C.history(a.id)[0].id);
+  assert.equal(path.dirname(p3), C.filesDir);
+  assert.equal(path.basename(p3), 'a.txt');
 });

@@ -148,6 +148,12 @@
     <header id="peerbar"></header>
     <div id="chat"></div>
     <form id="composer" autocomplete="off">
+      <!-- 첨부 띠(v0.4.0): 파일을 고르면 여기 붙고, Enter/보내기를 눌러야 나간다. -->
+      <div id="attach" class="attach" hidden>
+        <span class="fic" aria-hidden="true"><svg><use href="#i-file"/></svg></span>
+        <span class="atxt"><span class="aname" id="attach-name"></span><span class="asize" id="attach-size"></span></span>
+        <button id="attach-x" class="x" type="button" title="첨부 취소" aria-label="remove attachment">✕</button>
+      </div>
       <div class="box">
         <button id="btn-file" class="ic" type="button" title="파일 보내기"><svg><use href="#i-clip"/></svg></button>
         <textarea id="msg" rows="1" placeholder="글을 쓰고 Enter로 보냅니다" aria-label="message text"></textarea>

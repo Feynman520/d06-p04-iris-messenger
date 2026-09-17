@@ -12,6 +12,34 @@ export const FILE_MAX = 10 * 1024 * 1024;
 // 실행 파일 계열: 화면에서 빨간 경고를 띄우는 데 쓴다(차단이 아니라 경고).
 export const RISKY_EXT = /\.(exe|bat|cmd|ps1|js|mjs|vbs|msi|scr|com|pif|reg|hta|jar|lnk|dll)$/i;
 
+// 받은 파일의 자리(0.4.0): IRIS 루트 밑 `_messenger\<상대 이름>\`. 루트는 Face와 같은 규칙으로 찾는다
+// (환경변수 IRIS_ROOT → 상태 폴더에서 위로 올라가며 `_agent\` 또는 `_ontology\graph.json`이 있는 폴더). 못 찾으면 상태 폴더 `files\`.
+export const SAVE_DIR_NAME = '_messenger';
+const ROOT_HOPS = 12;
+export function findIrisRoot(from, env = process.env) {
+  if (env.IRIS_ROOT && fs.existsSync(env.IRIS_ROOT)) return path.resolve(env.IRIS_ROOT);
+  let dir = path.resolve(from);
+  for (let i = 0; i < ROOT_HOPS; i += 1) {
+    if (fs.existsSync(path.join(dir, '_ontology', 'graph.json')) || fs.existsSync(path.join(dir, '_agent'))) return dir;
+    const up = path.dirname(dir);
+    if (up === dir) break;
+    dir = up;
+  }
+  return null;
+}
+// 폴더·파일 이름으로 쓸 수 없는 글자를 `_`로 바꾸고 앞뒤 점·공백을 뗀다(상대 이름은 상대가 정한 값이라 믿지 않는다).
+export function folderName(s, fallback = '이름 모름') {
+  const t = String(s ?? '').replace(/[\\/:*?"<>|\x00-\x1f]/g, '_').replace(/^[\s.]+|[\s.]+$/g, '').slice(0, 60);
+  return t || fallback;
+}
+// 같은 이름이 있으면 `이름 (2).확장자`처럼 번호를 붙인다.
+function uniquePath(dir, name) {
+  const { name: base, ext } = path.parse(name);
+  let out = path.join(dir, name);
+  for (let k = 2; fs.existsSync(out); k += 1) out = path.join(dir, `${base} (${k})${ext}`);
+  return out;
+}
+
 const MAX_BATCH = 200;
 const BACKOFF_MIN = 1000, BACKOFF_MAX = 60000, POLL_MS = 60000, WS_RETRY_MS = 600000;
 // 연결된 뒤의 안전망: 구독이 받아들여진(ack) 바로 그 ms 사이에 들어온 줄은 도어벨을 못 울린다 →
@@ -52,6 +80,15 @@ export class Messages {
     }, o);
     this.dir = path.join(this.stateDir, 'messages');
     this.filesDir = path.join(this.stateDir, 'files');
+    // saveRoot: undefined = 상태 폴더에서 IRIS 루트를 찾는다 · null = 찾지 않는다(상태 폴더에 저장) · 문자열 = 그 루트.
+    if (this.saveRoot === undefined) this.saveRoot = findIrisRoot(this.stateDir);
+  }
+
+  // 받은 파일을 놓을 폴더: <IRIS 루트>\_messenger\<상대 이름>\ — 루트를 모르면 상태 폴더 files\.
+  saveDirFor(peer) {
+    if (!this.saveRoot) return this.filesDir;
+    const name = this.contacts?.get?.(peer)?.displayName;
+    return path.join(this.saveRoot, SAVE_DIR_NAME, folderName(name));
   }
 
   #me() { return typeof this.me === 'function' ? this.me() : this.me; }
@@ -245,10 +282,10 @@ export class Messages {
       if (!Buffer.isBuffer(sealed) || sealed.length > cap) throw new Error('file too large');
       const data = openFile(sealed, item.file.key);
       if (data.length > FILE_MAX) throw new Error('file too large');
-      await ensureDir(this.filesDir);
-      const head = String(item.id).slice(0, 8);
-      let out = path.join(this.filesDir, `${head}-${item.file.name}`);
-      for (let k = 2; fs.existsSync(out); k += 1) out = path.join(this.filesDir, `${head}-${k}-${item.file.name}`);
+      const dir = this.saveDirFor(peer);
+      await ensureDir(dir);
+      // 파일 이름도 보낸 쪽이 정한 값 — 폴더 밖으로 나가는 글자를 걸러 원래 이름으로 저장하고, 겹치면 번호를 붙인다.
+      const out = uniquePath(dir, safeName(item.file.name, 'file'));
       await writeFileAtomic(out, data);
       item.file.savedPath = out;
       await this.#persist(peer);
