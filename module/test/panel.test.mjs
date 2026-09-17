@@ -151,10 +151,15 @@ test('⑧ 신뢰·안전 문구가 빠지지 않았다', () => {
   // 프로필 사진: PC 안에서 96×96 JPEG 로 줄여 보내고, 서버 상한(32KB)보다 작은 24KB 를 지킨다.
   assert.ok(JS.includes('var AVATAR_PX = 96;') && JS.includes('var AVATAR_BYTES = 24 * 1024;'));
   assert.ok(JS.includes("c.toDataURL('image/jpeg', q)"));
-  // 복구 단어에는 복사 단추를 두지 않는다(손으로 적게 한다).
+  // 복구 단어에는 복사 단추를 두지 않는다(손으로 적게 한다). 클립보드 코드는 글 말풍선 복사(v0.4.1) copyText() 한 곳뿐이고,
+  // 그 함수를 부르는 곳은 textBubble() 하나다 — 12단어 화면에서는 절대 부르지 않는다.
   assert.ok(HTML.includes('복사 단추는 일부러 두지 않았습니다'));
-  assert.equal(HTML.includes('navigator.clipboard'), false);
-  assert.equal(HTML.includes('execCommand'), false);
+  assert.equal((JS.match(/navigator\.clipboard/g) || []).length, 3, 'copyText() 안의 존재 확인 2 + 호출 1, 그 밖에는 없다');
+  assert.equal((JS.match(/execCommand\(/g) || []).length, 1, 'copyText() 안의 예비 길 하나');
+  assert.equal((JS.match(/copyText\(/g) || []).length, 2, '정의 1 + 글 말풍선 호출 1');
+  assert.ok(JS.includes("var btn = h('button', { class: 'cp', type: 'button', title: '복사'"), '글 말풍선의 복사 단추');
+  assert.equal(JS.includes('copyText(words'), false);
+  assert.equal(JS.includes("copyText($('idn-words')"), false);
 });
 
 test('⑨ 상태는 /api/state 한 덩어리에서만 온다(다른 설정 파일을 읽지 않는다)', () => {

@@ -248,6 +248,19 @@ input[type=text].otp:focus{outline:2px solid var(--accent);outline-offset:3px;bo
 .line.out.first.last .msg{border-radius:16px 16px 6px 16px}
 .line.in.last .msg{border-bottom-left-radius:6px}
 .line.out.last .msg{border-bottom-right-radius:6px}
+/* 글 말풍선 옆 복사 단추(v0.4.1): 말풍선 바깥쪽(상대 글은 오른쪽, 내 글은 왼쪽)에 작게, 올리면 보인다. */
+.msgrow{display:flex;align-items:center;gap:4px;max-width:100%}
+.line.out .msgrow{flex-direction:row-reverse}
+.msgrow .msg{min-width:0}
+.cp{
+  flex:none;width:24px;height:24px;border:none;border-radius:7px;background:transparent;color:var(--dim);
+  display:grid;place-items:center;cursor:pointer;opacity:0;transition:opacity var(--t),background var(--t),color var(--t);padding:0;
+}
+.cp svg{width:14px;height:14px}
+.line:hover .cp,.cp:focus-visible,.cp.done{opacity:1}
+.cp:hover{background:var(--sur2);color:var(--fg)}
+.cp.done{color:var(--accent)}
+@media (hover:none){.cp{opacity:.45}}
 .meta{color:var(--dim);font-size:11px;display:flex;gap:6px;align-items:center;padding:0 4px;margin-top:2px}
 .meta .fail{color:var(--bad)}
 .filecard{

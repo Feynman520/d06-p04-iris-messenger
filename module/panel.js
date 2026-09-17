@@ -390,7 +390,7 @@ function renderChat() {
       && !(it.dir === 'out' && it.status !== next.status);   // 보냄/실패가 갈리면 시각·상태를 따로 보여 준다
     var line = h('div', { class: 'line ' + (it.dir === 'out' ? 'out' : 'in') + (joinPrev ? '' : ' first') + (joinNext ? '' : ' last') });
     if (it.kind === 'file') line.appendChild(fileCard(it, re));
-    else line.appendChild(h('div', { class: 'msg', text: it.text || '' }));
+    else line.appendChild(textBubble(it));
     // 시각·상태는 묶음의 마지막 글에만(같은 사람의 연속 글마다 반복하지 않는다).
     var showMeta = !joinNext || it.status === 'failed' || it.status === 'unsupported';
     if (showMeta) {
@@ -410,6 +410,40 @@ function renderChat() {
     box.appendChild(line);
   });
   box.scrollTop = box.scrollHeight;
+}
+
+// 글 말풍선 + 바깥쪽 작은 복사 단추(v0.4.1): 누르면 그 글이 그대로 클립보드에 들어가고 1초쯤 ✓로 바뀐다.
+function textBubble(it) {
+  var text = it.text || '';
+  var btn = h('button', { class: 'cp', type: 'button', title: '복사', 'aria-label': 'copy message' }, icon('copy'));
+  btn.addEventListener('click', async function () {
+    var ok = await copyText(text);
+    btn.textContent = '';
+    btn.appendChild(icon(ok ? 'check' : 'copy'));
+    btn.title = ok ? '복사됨' : '복사 실패';
+    btn.classList.toggle('done', ok);
+    setTimeout(function () { btn.textContent = ''; btn.appendChild(icon('copy')); btn.title = '복사'; btn.classList.remove('done'); }, 1200);
+  });
+  return h('div', { class: 'msgrow' }, h('div', { class: 'msg', text: text }), btn);
+}
+
+// 클립보드 API가 막힌 자리(오래된 웹뷰 등)에서는 숨은 textarea + execCommand 로 한 번 더 시도한다.
+async function copyText(text) {
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) { await navigator.clipboard.writeText(text); return true; }
+  } catch (e) { /* 아래 예비 길 */ }
+  try {
+    var ta = document.createElement('textarea');
+    ta.value = text;
+    ta.setAttribute('readonly', '');
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    var ok = document.execCommand('copy');
+    document.body.removeChild(ta);
+    return !!ok;
+  } catch (e) { return false; }
 }
 
 function fileCard(it, re) {
